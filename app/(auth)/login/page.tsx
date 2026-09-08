@@ -1,0 +1,6 @@
+import Link from "next/link";
+import { login } from "../actions";
+
+export default function LoginPage() {
+  return <section className="w-full rounded-3xl border border-slate-200 bg-white p-8 shadow-sm"><h1 className="text-3xl font-semibold tracking-tight">Welcome back</h1><p className="mt-2 text-slate-600">Log in to continue your ProductForge research.</p><form action={login} className="mt-8 space-y-4"><div><label htmlFor="email" className="mb-2 block text-sm font-medium">Email</label><input id="email" name="email" type="email" required className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-400" /></div><div><label htmlFor="password" className="mb-2 block text-sm font-medium">Password</label><input id="password" name="password" type="password" required minLength={6} className="w-full rounded-xl border border-slate-200 px-4 py-3 outline-none focus:border-slate-400" /></div><button className="w-full rounded-xl bg-slate-950 px-4 py-3 font-medium text-white">Log in</button></form><p className="mt-6 text-center text-sm text-slate-600">New to ProductForge? <Link href="/signup" className="font-medium text-slate-950">Create an account</Link></p></section>;
+}
