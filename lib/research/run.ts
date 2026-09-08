@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { buildResearchPlan } from "./planner";
 import { ExaProvider } from "./providers/exa";
+import { synthesizeResearchRun } from "./synthesizer";
 import type { ResearchInput } from "./types";
 
 function domainFromUrl(url: string) {
@@ -58,10 +59,30 @@ export async function runResearch(projectId: string, input: ResearchInput) {
       if (error) throw new Error(error.message);
     }
 
-    await supabase.from("research_runs").update({ status: "completed", stage: "evidence_collected", completed_at: new Date().toISOString(), metadata: { provider: provider.name, query_count: plan.length, evidence_count: uniqueEvidence.length } }).eq("id", run.id);
-    await supabase.from("opportunity_searches").update({ status: "completed", completed_at: new Date().toISOString() }).eq("id", search.id);
+    await supabase.from("research_runs").update({ stage: "synthesizing_evidence" }).eq("id", run.id);
+    const synthesis = await synthesizeResearchRun(run.id, input);
+
+    const completedAt = new Date().toISOString();
+    await supabase.from("research_runs").update({
+      status: "completed",
+      stage: "evidence_synthesized",
+      completed_at: completedAt,
+      metadata: {
+        provider: provider.name,
+        query_count: plan.length,
+        evidence_count: uniqueEvidence.length,
+        synthesis,
+      },
+    }).eq("id", run.id);
+
+    await supabase.from("opportunity_searches").update({
+      status: "completed",
+      research_summary: synthesis.executiveSummary,
+      completed_at: completedAt,
+    }).eq("id", search.id);
+
     await supabase.from("projects").update({ status: "researching", current_stage: 1 }).eq("id", projectId);
-    return { runId: run.id, searchId: search.id, evidenceCount: uniqueEvidence.length };
+    return { runId: run.id, searchId: search.id, evidenceCount: uniqueEvidence.length, synthesis };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Research failed";
     await supabase.from("research_runs").update({ status: "failed", stage: "failed", error_message: message, completed_at: new Date().toISOString() }).eq("id", run.id);
