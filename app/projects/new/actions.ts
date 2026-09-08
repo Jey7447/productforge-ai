@@ -10,8 +10,11 @@ export async function createProject(formData: FormData) {
   const name = String(formData.get("name") ?? "").trim();
   const startingPoint = String(formData.get("startingPoint") ?? "").trim();
   if (!name || !startingPoint) redirect("/projects/new");
-  const { data: project, error } = await supabase.from("projects").insert({ user_id: user.id, name, status: "draft" }).select("id").single();
+
+  const { data: project, error } = await supabase.from("projects").insert({ user_id: user.id, name, status: "draft", current_stage: 0 }).select("id").single();
   if (error || !project) redirect(`/projects/new?error=${encodeURIComponent(error?.message ?? "Unable to create project")}`);
-  await supabase.from("project_inputs").insert({ project_id: project.id, input_type: "starting_point", content: startingPoint });
+
+  const { error: inputError } = await supabase.from("project_inputs").insert({ project_id: project.id, interests: [], expertise: null, audience: null, problems: startingPoint, goals: null, preferred_product_types: [], priority_goal: null, additional_context: null });
+  if (inputError) redirect(`/projects/new?error=${encodeURIComponent(inputError.message)}`);
   redirect(`/projects/${project.id}`);
 }
