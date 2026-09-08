@@ -6,14 +6,17 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "eslint ."
   },
   "dependencies": {
+    "@ai-sdk/gateway": "latest",
     "@supabase/ssr": "latest",
     "@supabase/supabase-js": "latest",
+    "ai": "latest",
     "next": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "zod": "latest"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "latest",
