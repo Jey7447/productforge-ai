@@ -1,14 +1,26 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+function getSafeNextPath(value: string | null) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) {
+    return "/dashboard";
+  }
+
+  return value;
+}
+
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
-  const next = requestUrl.searchParams.get("next") ?? "/dashboard";
+  const next = getSafeNextPath(requestUrl.searchParams.get("next"));
 
   if (!code) {
+    const errorDescription = requestUrl.searchParams.get("error_description");
+    const error = requestUrl.searchParams.get("error");
+    const message = errorDescription || error || "Missing verification code";
+
     return NextResponse.redirect(
-      new URL("/login?error=Missing%20verification%20code", requestUrl.origin)
+      new URL(`/login?error=${encodeURIComponent(message)}`, requestUrl.origin),
     );
   }
 
@@ -17,7 +29,7 @@ export async function GET(request: Request) {
 
   if (error) {
     return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(error.message)}`, requestUrl.origin)
+      new URL(`/login?error=${encodeURIComponent(error.message)}`, requestUrl.origin),
     );
   }
 
