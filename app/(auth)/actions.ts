@@ -1,8 +1,24 @@
 "use server";
 
+import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+
+function getSafeSiteOrigin(requestHeaders: Headers) {
+  const configuredOrigin = process.env.NEXT_PUBLIC_SITE_URL?.trim();
+  const headerOrigin = requestHeaders.get("origin")?.trim();
+
+  if (configuredOrigin) {
+    return configuredOrigin.replace(/\/$/, "");
+  }
+
+  if (headerOrigin) {
+    return headerOrigin.replace(/\/$/, "");
+  }
+
+  return "http://localhost:3000";
+}
 
 export async function login(formData: FormData) {
   const supabase = await createClient();
@@ -21,6 +37,8 @@ export async function login(formData: FormData) {
 
 export async function signup(formData: FormData) {
   const supabase = await createClient();
+  const requestHeaders = await headers();
+  const origin = getSafeSiteOrigin(requestHeaders);
   const name = String(formData.get("name") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
@@ -29,6 +47,7 @@ export async function signup(formData: FormData) {
     email,
     password,
     options: {
+      emailRedirectTo: `${origin}/auth/callback`,
       data: {
         full_name: name,
       },
