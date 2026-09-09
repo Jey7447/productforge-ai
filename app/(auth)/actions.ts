@@ -1,6 +1,5 @@
 "use server";
 
-import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -22,8 +21,6 @@ export async function login(formData: FormData) {
 
 export async function signup(formData: FormData) {
   const supabase = await createClient();
-  const requestHeaders = await headers();
-  const origin = requestHeaders.get("origin") ?? "http://localhost:3000";
   const name = String(formData.get("name") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim();
   const password = String(formData.get("password") ?? "");
@@ -32,7 +29,6 @@ export async function signup(formData: FormData) {
     email,
     password,
     options: {
-      emailRedirectTo: `${origin}/auth/callback`,
       data: {
         full_name: name,
       },
@@ -50,8 +46,8 @@ export async function signup(formData: FormData) {
   if (!data.session) {
     redirect(
       `/login?message=${encodeURIComponent(
-        "Account created. Please check your email and confirm your address before logging in."
-      )}`
+        "Account created. Please check your email and confirm your address before logging in.",
+      )}`,
     );
   }
 
