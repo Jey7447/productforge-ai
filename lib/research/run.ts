@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { buildResearchPlan } from "./planner";
 import { ExaProvider } from "./providers/exa";
 import { synthesizeResearchRun } from "./synthesizer";
+import { generateAndStoreOpportunities } from "./opportunity-engine";
 import type { ResearchInput } from "./types";
 
 function domainFromUrl(url: string) {
@@ -62,16 +63,23 @@ export async function runResearch(projectId: string, input: ResearchInput) {
     await supabase.from("research_runs").update({ stage: "synthesizing_evidence" }).eq("id", run.id);
     const synthesis = await synthesizeResearchRun(run.id, input);
 
+    await supabase.from("research_runs").update({ stage: "opportunity_generation" }).eq("id", run.id);
+    const opportunities = await generateAndStoreOpportunities(projectId, run.id, search.id, input, synthesis);
+
+    await supabase.from("research_runs").update({ stage: "scoring" }).eq("id", run.id);
+
     const completedAt = new Date().toISOString();
     await supabase.from("research_runs").update({
       status: "completed",
-      stage: "evidence_synthesized",
+      stage: "completed",
       completed_at: completedAt,
       metadata: {
         provider: provider.name,
         query_count: plan.length,
         evidence_count: uniqueEvidence.length,
+        opportunity_count: opportunities.length,
         synthesis,
+        opportunities,
       },
     }).eq("id", run.id);
 
@@ -82,7 +90,7 @@ export async function runResearch(projectId: string, input: ResearchInput) {
     }).eq("id", search.id);
 
     await supabase.from("projects").update({ status: "researching", current_stage: 1 }).eq("id", projectId);
-    return { runId: run.id, searchId: search.id, evidenceCount: uniqueEvidence.length, synthesis };
+    return { runId: run.id, searchId: search.id, evidenceCount: uniqueEvidence.length, opportunities, synthesis };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Research failed";
     await supabase.from("research_runs").update({ status: "failed", stage: "failed", error_message: message, completed_at: new Date().toISOString() }).eq("id", run.id);
