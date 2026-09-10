@@ -1,8 +1,8 @@
-import { gateway } from "@ai-sdk/gateway";
+import { openai } from "@ai-sdk/openai";
 
-const DEFAULT_MODEL = "openai/gpt-5.5";
+const DEFAULT_MODEL = "gpt-5.6-luna";
 
 export function getResearchModel() {
   const modelId = process.env.PRODUCTFORGE_AI_MODEL?.trim() || DEFAULT_MODEL;
-  return gateway.languageModel(modelId);
+  return openai(modelId);
 }
