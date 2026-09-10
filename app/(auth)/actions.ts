@@ -63,11 +63,7 @@ export async function signup(formData: FormData) {
   // When email confirmation is enabled, Supabase creates the user but
   // intentionally does not create an authenticated session yet.
   if (!data.session) {
-    redirect(
-      `/login?message=${encodeURIComponent(
-        "Account created. Please check your email and confirm your address before logging in.",
-      )}`,
-    );
+    redirect(`/signup/verify?email=${encodeURIComponent(email)}`);
   }
 
   redirect("/dashboard");
