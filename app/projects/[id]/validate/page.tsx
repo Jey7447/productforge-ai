@@ -1,0 +1,16 @@
+import { notFound, redirect } from "next/navigation";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/server";
+import { StageShell } from "@/components/stage-shell";
+
+export default async function ValidatePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const { data: project } = await supabase.from("projects").select("id,name").eq("id", id).eq("user_id", user.id).single();
+  if (!project) notFound();
+  const { data: opportunity } = await supabase.from("opportunities").select("title,opportunity_score,confidence_score,demand_score,problem_intensity_score,competition_gap_score,monetization_score,buildability_score").eq("project_id", id).order("opportunity_score", { ascending: false }).limit(1).maybeSingle();
+  const checks = [["Market demand", opportunity?.demand_score], ["Problem severity", opportunity?.problem_intensity_score], ["Competition gap", opportunity?.competition_gap_score], ["Monetization signal", opportunity?.monetization_score], ["Buildability", opportunity?.buildability_score]];
+  return <StageShell projectId={id} projectName={project.name} active="Validate"><div className="pt-8"><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#8a8a82]">03 · Validation</p><h1 className="pf-display mt-3 max-w-4xl text-5xl font-semibold leading-[.94] sm:text-6xl">Pressure-test the opportunity.</h1><p className="mt-4 max-w-2xl text-sm leading-7 text-[#73736d]">Validation turns the research signals into a decision framework. It does not guarantee sales; it tells you what deserves a real-world test next.</p><section className="mt-8 grid gap-4 lg:grid-cols-[1.1fr_.9fr]"><div className="rounded-[30px] border border-[#deded7] bg-white p-7"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Validation scorecard</p><h2 className="mt-2 text-2xl font-semibold">{opportunity?.title ?? "No opportunity selected yet"}</h2><div className="mt-7 space-y-5">{checks.map(([label,value]) => { const n=Math.round(Number(value??0)); return <div key={label as string}><div className="flex justify-between text-sm"><span>{label}</span><span className="font-semibold">{n || "—"}</span></div><div className="mt-2 h-2 rounded-full bg-[#ecece6]"><div className="h-full rounded-full bg-[#171714]" style={{width:`${n}%`}} /></div></div>})}</div></div><div className="rounded-[30px] bg-[#171714] p-7 text-white"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-white/45">Decision lens</p><h2 className="mt-3 text-3xl font-semibold">Validate before you build.</h2><div className="mt-8 space-y-3">{["Talk to the target audience","Test the core promise","Compare alternatives","Confirm willingness to pay","Define the smallest useful product"].map((item)=><div key={item} className="flex gap-3 rounded-2xl border border-white/10 bg-white/[.04] p-4 text-sm"><span className="text-[#d9f06a]">□</span><span className="text-white/70">{item}</span></div>)}</div></div></section><div className="mt-5 flex justify-end"><Link href={`/projects/${id}/build`} className="rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Proceed to product plan →</Link></div></div></StageShell>;
+}
