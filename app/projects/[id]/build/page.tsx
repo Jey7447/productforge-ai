@@ -2,12 +2,160 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { StageShell } from "@/components/stage-shell";
+import { BuildButton } from "@/components/build-button";
 
-const modules = [["01","Promise & audience","Define the transformation and the person it is for."],["02","Core framework","Turn the validated insight into a repeatable method."],["03","Practical application","Add examples, exercises and implementation guidance."],["04","Tools & resources","Create worksheets, templates and supporting assets."]];
+type Product = {
+  id: string;
+  name: string;
+  tagline: string | null;
+  description: string | null;
+  format: string | null;
+  target_audience: string | null;
+  promise: string | null;
+  status: string;
+};
+
+type Module = {
+  id: string;
+  title: string;
+  description: string | null;
+  learning_outcome: string | null;
+  position: number;
+};
 
 export default async function BuildPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params; const supabase = await createClient(); const { data:{user} }=await supabase.auth.getUser(); if(!user) redirect("/login");
-  const {data:project}=await supabase.from("projects").select("id,name").eq("id",id).eq("user_id",user.id).single(); if(!project) notFound();
-  const {data:opportunity}=await supabase.from("opportunities").select("title,proposed_product,product_type").eq("project_id",id).order("opportunity_score",{ascending:false}).limit(1).maybeSingle();
-  return <StageShell projectId={id} projectName={project.name} active="Build"><div className="pt-8"><p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#8a8a82]">04 · Product builder</p><div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end"><div><h1 className="pf-display mt-3 max-w-4xl text-5xl font-semibold leading-[.94] sm:text-6xl">Build the product around the evidence.</h1><p className="mt-4 max-w-2xl text-sm leading-7 text-[#73736d]">A structured product blueprint keeps the validated problem at the center of what you create.</p></div><span className="rounded-full bg-[#dff77a] px-4 py-2 text-xs font-bold">Blueprint preview</span></div><section className="mt-8 grid gap-4 lg:grid-cols-[.8fr_1.2fr]"><aside className="rounded-[30px] bg-[#171714] p-7 text-white"><p className="text-[10px] font-bold uppercase tracking-[.18em] text-white/45">Product concept</p><h2 className="mt-3 text-2xl font-semibold">{opportunity?.title ?? "Validated opportunity"}</h2><p className="mt-4 text-sm leading-6 text-white/55">{opportunity?.proposed_product ?? "Your validated opportunity will become the product brief here."}</p><div className="mt-8 rounded-2xl bg-white/[.06] p-4"><p className="text-[10px] uppercase tracking-wider text-white/40">Recommended format</p><p className="mt-1 font-semibold">{opportunity?.product_type ?? "Digital product"}</p></div></aside><div className="rounded-[30px] border border-[#deded7] bg-white p-7"><div className="flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Product structure</p><h2 className="mt-2 text-2xl font-semibold">Suggested modules</h2></div><span className="text-xs text-[#999991]">04 modules</span></div><div className="mt-6 space-y-3">{modules.map(([n,t,d])=><div key={n} className="pf-card-hover flex gap-4 rounded-2xl border border-[#e5e5de] bg-[#fafaf8] p-4"><span className="text-xs font-bold text-[#999991]">{n}</span><div><h3 className="text-sm font-semibold">{t}</h3><p className="mt-1 text-xs leading-5 text-[#73736d]">{d}</p></div><span className="ml-auto text-[#b0b0a7]">↗</span></div>)}</div></div></section><div className="mt-5 flex justify-end"><Link href={`/projects/${id}/launch`} className="rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Open launch advisor →</Link></div></div></StageShell>;
+  const { id } = await params;
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("id,name")
+    .eq("id", id)
+    .eq("user_id", user.id)
+    .single();
+  if (!project) notFound();
+
+  const { data: opportunity } = await supabase
+    .from("opportunities")
+    .select("title,proposed_product,product_type,target_audience,problem")
+    .eq("project_id", id)
+    .order("opportunity_score", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data: product } = await supabase
+    .from("products")
+    .select("id,name,tagline,description,format,target_audience,promise,status")
+    .eq("project_id", id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const typedProduct = product as Product | null;
+  const { data: moduleRows } = typedProduct
+    ? await supabase
+        .from("modules")
+        .select("id,title,description,learning_outcome,position")
+        .eq("product_id", typedProduct.id)
+        .order("position", { ascending: true })
+    : { data: [] };
+
+  const modules = (moduleRows ?? []) as Module[];
+  const ready = Boolean(typedProduct && modules.length);
+
+  return (
+    <StageShell projectId={id} projectName={project.name} active="Build">
+      <div className="pt-8">
+        <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#8a8a82]">04 · Product builder</p>
+        <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+          <div>
+            <h1 className="pf-display mt-3 max-w-4xl text-5xl font-semibold leading-[.94] sm:text-6xl">Build the product around the evidence.</h1>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-[#73736d]">Turn the validated opportunity into a structured product blueprint with a clear promise, audience, modules, lessons, exercises, and worksheets.</p>
+          </div>
+          <span className="rounded-full bg-[#dff77a] px-4 py-2 text-xs font-bold">{ready ? "Blueprint created" : "Blueprint ready"}</span>
+        </div>
+
+        {!opportunity ? (
+          <section className="mt-8 rounded-[30px] border border-[#deded7] bg-white p-8">
+            <p className="text-lg font-semibold">Research and validation are required first.</p>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-[#73736d]">ProductForge only creates a product blueprint after it has an opportunity and a validation decision to build from.</p>
+            <Link href={`/projects/${id}`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Back to research →</Link>
+          </section>
+        ) : !typedProduct ? (
+          <section className="mt-8 grid gap-4 lg:grid-cols-[.8fr_1.2fr]">
+            <aside className="rounded-[30px] bg-[#171714] p-7 text-white">
+              <p className="text-[10px] font-bold uppercase tracking-[.18em] text-white/45">Validated opportunity</p>
+              <h2 className="mt-3 text-2xl font-semibold">{opportunity.title}</h2>
+              <p className="mt-4 text-sm leading-6 text-white/60">{opportunity.problem || "The validated problem will anchor the product."}</p>
+              <div className="mt-8 rounded-2xl bg-white/[.06] p-4">
+                <p className="text-[10px] uppercase tracking-wider text-white/40">Proposed direction</p>
+                <p className="mt-1 text-sm font-semibold">{opportunity.proposed_product || "Digital product"}</p>
+              </div>
+            </aside>
+            <div className="rounded-[30px] border border-[#deded7] bg-white p-7">
+              <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Next build step</p>
+              <h2 className="mt-2 text-3xl font-semibold">Create the first product blueprint.</h2>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-[#73736d]">ProductForge will create the product record and a structured four-module foundation. This first pass is deterministic and grounded in the opportunity; AI-assisted expansion can be added later.</p>
+              <div className="mt-7 rounded-2xl bg-[#f5f5f2] p-5">
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div><p className="text-[10px] uppercase tracking-wider text-[#999991]">Audience</p><p className="mt-1 text-sm font-semibold">{opportunity.target_audience || "Defined by research"}</p></div>
+                  <div><p className="text-[10px] uppercase tracking-wider text-[#999991]">Format</p><p className="mt-1 text-sm font-semibold">{opportunity.product_type || "Digital product"}</p></div>
+                  <div><p className="text-[10px] uppercase tracking-wider text-[#999991]">Foundation</p><p className="mt-1 text-sm font-semibold">4 modules + practice</p></div>
+                </div>
+              </div>
+              <div className="mt-6"><BuildButton projectId={id} /></div>
+            </div>
+          </section>
+        ) : (
+          <>
+            <section className="mt-8 grid gap-4 lg:grid-cols-[.8fr_1.2fr]">
+              <aside className="rounded-[30px] bg-[#171714] p-7 text-white">
+                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-white/45">Product concept</p>
+                <h2 className="mt-3 text-2xl font-semibold">{typedProduct.name}</h2>
+                <p className="mt-2 text-sm font-medium text-[#d9f06a]">{typedProduct.tagline}</p>
+                <p className="mt-4 text-sm leading-6 text-white/60">{typedProduct.description}</p>
+                <div className="mt-8 rounded-2xl bg-white/[.06] p-4">
+                  <p className="text-[10px] uppercase tracking-wider text-white/40">Product promise</p>
+                  <p className="mt-2 text-sm leading-6 text-white/80">{typedProduct.promise}</p>
+                </div>
+              </aside>
+
+              <div className="rounded-[30px] border border-[#deded7] bg-white p-7">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Product structure</p><h2 className="mt-2 text-2xl font-semibold">Suggested modules</h2></div>
+                  <span className="rounded-full bg-[#f5f5f2] px-3 py-2 text-xs font-semibold">{modules.length} modules</span>
+                </div>
+                <div className="mt-6 space-y-3">
+                  {modules.map((module) => (
+                    <article key={module.id} className="pf-card-hover rounded-2xl border border-[#e5e5de] bg-[#fafaf8] p-5">
+                      <div className="flex gap-4">
+                        <span className="text-xs font-bold text-[#999991]">{String(module.position).padStart(2, "0")}</span>
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-sm font-semibold">{module.title}</h3>
+                          <p className="mt-1 text-xs leading-5 text-[#73736d]">{module.description}</p>
+                          <p className="mt-3 text-xs font-medium text-[#565650]">Outcome: {module.learning_outcome}</p>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            <section className="mt-5 rounded-[30px] bg-[#d9f06a] p-7">
+              <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#58620e]">Blueprint status</p>
+              <h2 className="mt-2 text-2xl font-semibold">The foundation is built. Now make it yours.</h2>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-[#41431f]">The database now contains the product, module, lesson, exercise, and worksheet structure. The next layer is editing, expanding content, and packaging the finished product for launch.</p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <Link href={`/projects/${id}/launch`} className="rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Open launch advisor →</Link>
+                <Link href={`/projects/${id}/validate`} className="rounded-full border border-[#171714]/20 px-5 py-3 text-sm font-semibold text-[#171714]">Review validation</Link>
+              </div>
+            </section>
+          </>
+        )}
+      </div>
+    </StageShell>
+  );
 }
