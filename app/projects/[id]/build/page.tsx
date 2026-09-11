@@ -74,7 +74,9 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
             <h1 className="pf-display mt-3 max-w-4xl text-5xl font-semibold leading-[.94] sm:text-6xl">Build the product around the evidence.</h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-[#73736d]">Turn the validated opportunity into a structured product blueprint with a clear promise, audience, modules, lessons, exercises, and worksheets.</p>
           </div>
-          <span className="rounded-full bg-[#dff77a] px-4 py-2 text-xs font-bold">{ready ? "Blueprint created" : "Blueprint ready"}</span>
+          <span className={`rounded-full px-4 py-2 text-xs font-bold ${ready ? "bg-[#dff77a] text-[#171714]" : "border border-[#deded7] bg-white text-[#73736d]"}`}>
+            {ready ? "Blueprint created" : "Awaiting validation"}
+          </span>
         </div>
 
         {!opportunity ? (
