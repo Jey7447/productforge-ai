@@ -160,13 +160,27 @@ export async function POST(request: Request) {
     .single();
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const { data: opportunity } = await supabase
+  // The decision layer is now authoritative: build the selected opportunity.
+  // Legacy projects without a selection fall back to their highest-scoring idea.
+  const { data: selectedOpportunity } = await supabase
     .from("opportunities")
     .select("id,title,target_audience,problem,proposed_product,product_type")
     .eq("project_id", project.id)
-    .order("opportunity_score", { ascending: false })
+    .eq("status", "selected")
     .limit(1)
     .maybeSingle();
+
+  const { data: fallbackOpportunity } = !selectedOpportunity
+    ? await supabase
+        .from("opportunities")
+        .select("id,title,target_audience,problem,proposed_product,product_type")
+        .eq("project_id", project.id)
+        .order("opportunity_score", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
+
+  const opportunity = selectedOpportunity ?? fallbackOpportunity;
 
   if (!opportunity) {
     return NextResponse.json(
