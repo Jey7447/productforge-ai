@@ -15,9 +15,19 @@ type LaunchLearning = {
   nextAction: string;
 };
 
+type Diagnosis = {
+  headline: string;
+  signal: string;
+  bottleneck: string;
+  recommendation: string;
+  nextExperiment: string;
+  metrics: string[];
+};
+
 type Props = {
   projectId: string;
   initialLearning?: Partial<LaunchLearning> | null;
+  initialDiagnosis?: Diagnosis | null;
 };
 
 const defaults: LaunchLearning = {
@@ -37,8 +47,9 @@ function normalize(value: Partial<LaunchLearning> | null | undefined): LaunchLea
   return { ...defaults, ...(value ?? {}) };
 }
 
-export function LaunchLearningWorkspace({ projectId, initialLearning }: Props) {
+export function LaunchLearningWorkspace({ projectId, initialLearning, initialDiagnosis }: Props) {
   const [values, setValues] = useState<LaunchLearning>(() => normalize(initialLearning));
+  const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(initialDiagnosis ?? null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -46,6 +57,7 @@ export function LaunchLearningWorkspace({ projectId, initialLearning }: Props) {
   function update(field: keyof LaunchLearning, value: string) {
     setValues((current) => ({ ...current, [field]: value }));
     setSaved(false);
+    setDiagnosis(null);
     setError("");
   }
 
@@ -66,8 +78,22 @@ export function LaunchLearningWorkspace({ projectId, initialLearning }: Props) {
         setError(payload.error ?? "Could not save launch results.");
         return;
       }
+
       setValues(normalize(payload.plan?.launchLearning));
       setSaved(true);
+
+      const diagnosisResponse = await fetch("/api/launch/diagnose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, launchLearning: values }),
+      });
+      const diagnosisPayload = await diagnosisResponse.json().catch(() => ({}));
+
+      if (diagnosisResponse.ok && diagnosisPayload.diagnosis) {
+        setDiagnosis(diagnosisPayload.diagnosis);
+      } else if (!diagnosisResponse.ok) {
+        setError(diagnosisPayload.error ?? "Results were saved, but the launch diagnosis could not be generated.");
+      }
     } catch {
       setError("Could not save launch results. Try again.");
     } finally {
@@ -124,6 +150,8 @@ export function LaunchLearningWorkspace({ projectId, initialLearning }: Props) {
         </label>
       </div>
 
+      {diagnosis && <LaunchDiagnosis diagnosis={diagnosis} />}
+
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <button type="button" onClick={save} disabled={saving} className="rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50">
           {saving ? "Saving results…" : "Save launch results →"}
@@ -132,6 +160,42 @@ export function LaunchLearningWorkspace({ projectId, initialLearning }: Props) {
         {error && <span className="text-xs font-semibold text-red-600">{error}</span>}
       </div>
     </section>
+  );
+}
+
+function LaunchDiagnosis({ diagnosis }: { diagnosis: Diagnosis }) {
+  return (
+    <div className="mt-6 overflow-hidden rounded-[24px] border border-[#dfe8a4] bg-[#f0ff86]">
+      <div className="grid lg:grid-cols-[1.05fr_.95fr]">
+        <div className="p-6 sm:p-7">
+          <p className="pf-mono text-[10px] font-semibold uppercase tracking-[.18em] text-[#697500]">Evidence analysis</p>
+          <h3 className="pf-display mt-2 text-2xl font-semibold">{diagnosis.headline}</h3>
+          <p className="mt-3 text-sm leading-6 text-[#4f5428]">{diagnosis.signal}</p>
+          {diagnosis.metrics.length > 0 && (
+            <div className="mt-5 flex flex-wrap gap-2">
+              {diagnosis.metrics.map((metric) => <span key={metric} className="rounded-full border border-[#cfdc72] bg-white/35 px-3 py-2 text-[11px] font-semibold text-[#555a2a]">{metric}</span>)}
+            </div>
+          )}
+        </div>
+        <div className="bg-white/45 p-6 sm:p-7">
+          <div>
+            <p className="pf-mono text-[9px] font-semibold uppercase tracking-[.16em] text-[#8a8a82]">Working bottleneck</p>
+            <p className="mt-1 text-lg font-semibold">{diagnosis.bottleneck}</p>
+          </div>
+          <div className="mt-5">
+            <p className="pf-mono text-[9px] font-semibold uppercase tracking-[.16em] text-[#8a8a82]">Recommended next move</p>
+            <p className="mt-1 text-sm leading-6 text-[#4f5428]">{diagnosis.recommendation}</p>
+          </div>
+          <div className="mt-5 rounded-2xl bg-[#171714] p-4 text-white">
+            <p className="pf-mono text-[9px] font-semibold uppercase tracking-[.16em] text-[#d9f06a]">Next experiment</p>
+            <p className="mt-1 text-sm leading-6 text-white/75">{diagnosis.nextExperiment}</p>
+          </div>
+        </div>
+      </div>
+      <div className="border-t border-[#cfdc72] px-6 py-3 text-[10px] leading-5 text-[#697500] sm:px-7">
+        This is a directional diagnosis from the evidence you recorded. It is a hypothesis for the next test, not proof of causation or future results.
+      </div>
+    </div>
   );
 }
 
