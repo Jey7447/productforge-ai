@@ -8,6 +8,15 @@ import { StageShell } from "@/components/stage-shell";
 type Product = { id: string; name: string; tagline: string | null; promise: string | null };
 type LaunchPlan = { id: string; status: string; plan: Record<string, any> };
 
+type LaunchDiagnosis = {
+  headline: string;
+  signal: string;
+  bottleneck: string;
+  recommendation: string;
+  nextExperiment: string;
+  metrics: string[];
+};
+
 export default async function LaunchPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
@@ -78,6 +87,9 @@ export default async function LaunchPage({ params }: { params: Promise<{ id: str
     }
   }
 
+  const initialLearning = reconciledPlan?.plan?.launchLearning ?? null;
+  const initialDiagnosis = (reconciledPlan?.plan?.launchDiagnosis ?? null) as LaunchDiagnosis | null;
+
   return (
     <StageShell projectId={id} projectName={project.name} active="Launch">
       <div className="pt-8">
@@ -101,7 +113,7 @@ export default async function LaunchPage({ params }: { params: Promise<{ id: str
             <LaunchWorkspace projectId={id} product={typedProduct} initialPlan={reconciledPlan} />
             {reconciledPlan && (
               <div className="mt-5">
-                <LaunchLearningWorkspace projectId={id} initialLearning={reconciledPlan.plan?.launchLearning ?? null} />
+                <LaunchLearningWorkspace projectId={id} initialLearning={initialLearning} initialDiagnosis={initialDiagnosis} />
               </div>
             )}
           </>
