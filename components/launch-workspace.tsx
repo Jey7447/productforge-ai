@@ -31,6 +31,7 @@ function LaunchSignalVisual({ evidenceCount }: { evidenceCount: number }) {
 export function LaunchWorkspace({ projectId, product, initialPlan }: { projectId: string; product: Product; initialPlan: LaunchPlan | null }) {
   const [plan, setPlan] = useState<LaunchPlan | null>(initialPlan);
   const [running, setRunning] = useState(false);
+  const [savingChecklist, setSavingChecklist] = useState(false);
   const [error, setError] = useState("");
   const [completed, setCompleted] = useState<Record<string, boolean>>(() => {
     const items = initialPlan?.plan?.checklist;
@@ -67,7 +68,40 @@ export function LaunchWorkspace({ projectId, product, initialPlan }: { projectId
     );
   }
 
-  function toggleChecklist(index: number) { setCompleted((current) => ({ ...current, [String(index)]: !current[String(index)] })); }
+  async function toggleChecklist(index: number) {
+    if (savingChecklist) return;
+    const nextCompleted = { ...completed, [String(index)]: !completed[String(index)] };
+    setCompleted(nextCompleted);
+    setSavingChecklist(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/launch/update", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          checklist: checklist.map((item: any, itemIndex: number) => ({
+            item: String(item.item ?? ""),
+            done: Boolean(nextCompleted[String(itemIndex)]),
+          })),
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setCompleted(completed);
+        setError(payload.error ?? "Could not save the launch checklist.");
+        return;
+      }
+      setPlan((current) => current ? { ...current, plan: payload.plan } : current);
+    } catch {
+      setCompleted(completed);
+      setError("Could not save the launch checklist. Try again.");
+    } finally {
+      setSavingChecklist(false);
+    }
+  }
+
   const doneCount = checklist.filter((_: any, index: number) => completed[String(index)]).length;
   const evidenceCount = Number(data?.evidence?.evidenceCount ?? 0);
 
@@ -75,7 +109,7 @@ export function LaunchWorkspace({ projectId, product, initialPlan }: { projectId
     <div className="mt-8 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#deded7] bg-white/75 px-4 py-3 backdrop-blur-sm">
         <div className="flex items-center gap-3"><span className="pf-pulse h-2 w-2 rounded-full bg-[#9ab100]" /><span className="pf-mono text-[9px] font-semibold uppercase tracking-[.16em] text-[#73736d]">Launch plan / {evidenceCount} evidence signals</span></div>
-        <button type="button" onClick={generatePlan} disabled={running} className="rounded-full border border-[#d5d5cd] bg-white px-4 py-2 text-xs font-semibold transition hover:-translate-y-0.5 hover:border-[#bdbdb4] hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50">{running ? "Refreshing…" : "Refresh plan ↻"}</button>
+        <div className="flex items-center gap-3"><span className="pf-mono text-[9px] font-semibold uppercase tracking-[.14em] text-[#8a8a82]">{savingChecklist ? "Saving checklist…" : "Checklist auto-saved"}</span><button type="button" onClick={generatePlan} disabled={running || savingChecklist} className="rounded-full border border-[#d5d5cd] bg-white px-4 py-2 text-xs font-semibold transition hover:-translate-y-0.5 hover:border-[#bdbdb4] hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50">{running ? "Refreshing…" : "Refresh plan ↻"}</button></div>
       </div>
       {error && <p className="px-1 text-xs leading-5 text-red-600">{error}</p>}
 
@@ -91,7 +125,7 @@ export function LaunchWorkspace({ projectId, product, initialPlan }: { projectId
 
       <section className="pf-card pf-card-hover rounded-[30px] p-7"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="pf-mono text-[10px] font-semibold uppercase tracking-[.18em] text-[#8a8a82]">14-day launch sequence</p><h2 className="pf-display mt-2 text-3xl font-semibold">Learn before you scale.</h2></div><span className="rounded-full bg-[#dff77a] px-3 py-2 text-xs font-bold">{timeline.length} phases</span></div><div className="pf-signal-line mt-7" /><div className="mt-7 grid gap-3 md:grid-cols-2 xl:grid-cols-3">{timeline.map((item: any, index: number) => <article key={item.days} className="group relative overflow-hidden rounded-2xl bg-[#f5f5f2] p-5 transition hover:-translate-y-1 hover:shadow-md"><span className="absolute right-4 top-4 text-4xl font-bold text-[#e3e3dc] transition group-hover:text-[#d9f06a]">0{index + 1}</span><p className="pf-mono text-[10px] font-bold uppercase tracking-wider text-[#8a8a82]">Days {item.days}</p><h3 className="pf-display mt-2 text-lg font-semibold">{item.focus}</h3><p className="mt-2 max-w-[85%] text-xs leading-6 text-[#73736d]">{item.action}</p></article>)}</div></section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.2fr_.8fr]"><div className="rounded-[30px] bg-[#171714] p-7 text-white"><div className="flex items-end justify-between gap-4"><div><p className="pf-mono text-[10px] font-semibold uppercase tracking-[.18em] text-white/40">Launch checklist</p><h2 className="pf-display mt-2 text-2xl font-semibold">Ship the first version.</h2></div><span className="pf-mono text-xs font-bold text-[#d9f06a]">{doneCount}/{checklist.length}</span></div><div className="mt-6 space-y-2">{checklist.map((item: any, index: number) => { const done = Boolean(completed[String(index)]); return <button key={item.item} type="button" onClick={() => toggleChecklist(index)} className="group flex w-full items-center gap-3 rounded-xl bg-white/[.06] p-4 text-left transition hover:bg-white/[.1]"><span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[10px] font-bold transition ${done ? "border-[#d9f06a] bg-[#d9f06a] text-[#171714]" : "border-white/20 text-white/30 group-hover:border-[#d9f06a]/60"}`}>{done ? "✓" : index + 1}</span><span className={`text-xs leading-5 ${done ? "text-white/35 line-through" : "text-white/75"}`}>{item.item}</span></button>; })}</div></div><div className="pf-lift rounded-[30px] bg-[#dff77a] p-7 text-[#171714]"><p className="pf-mono text-[10px] font-semibold uppercase tracking-[.18em] text-[#58620e]">What to measure</p><h2 className="pf-display mt-2 text-2xl font-semibold">Real response beats vanity metrics.</h2><div className="mt-6 space-y-2">{metrics.map((metric: string, index: number) => <div key={metric} className="flex items-center gap-3 rounded-xl bg-white/55 px-4 py-3 text-xs font-semibold"><span className="pf-mono text-[9px] text-[#7d842f]">0{index + 1}</span>{metric}</div>)}</div></div></section>
+      <section className="grid gap-4 lg:grid-cols-[1.2fr_.8fr]"><div className="rounded-[30px] bg-[#171714] p-7 text-white"><div className="flex items-end justify-between gap-4"><div><p className="pf-mono text-[10px] font-semibold uppercase tracking-[.18em] text-white/40">Launch checklist</p><h2 className="pf-display mt-2 text-2xl font-semibold">Ship the first version.</h2></div><span className="pf-mono text-xs font-bold text-[#d9f06a]">{doneCount}/{checklist.length}</span></div><div className="mt-6 space-y-2">{checklist.map((item: any, index: number) => { const done = Boolean(completed[String(index)]); return <button key={item.item} type="button" onClick={() => toggleChecklist(index)} disabled={savingChecklist} className="group flex w-full items-center gap-3 rounded-xl bg-white/[.06] p-4 text-left transition hover:bg-white/[.1] disabled:cursor-wait disabled:opacity-80"><span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border text-[10px] font-bold transition ${done ? "border-[#d9f06a] bg-[#d9f06a] text-[#171714]" : "border-white/20 text-white/30 group-hover:border-[#d9f06a]/60"}`}>{done ? "✓" : index + 1}</span><span className={`text-xs leading-5 ${done ? "text-white/35 line-through" : "text-white/75"}`}>{item.item}</span></button>; })}</div></div><div className="pf-lift rounded-[30px] bg-[#dff77a] p-7 text-[#171714]"><p className="pf-mono text-[10px] font-semibold uppercase tracking-[.18em] text-[#58620e]">What to measure</p><h2 className="pf-display mt-2 text-2xl font-semibold">Real response beats vanity metrics.</h2><div className="mt-6 space-y-2">{metrics.map((metric: string, index: number) => <div key={metric} className="flex items-center gap-3 rounded-xl bg-white/55 px-4 py-3 text-xs font-semibold"><span className="pf-mono text-[9px] text-[#7d842f]">0{index + 1}</span>{metric}</div>)}</div></div></section>
 
       <section className="pf-card rounded-[30px] p-7"><div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center"><div><p className="pf-mono text-[10px] font-semibold uppercase tracking-[.18em] text-[#8a8a82]">Next loop</p><h2 className="pf-display mt-2 text-2xl font-semibold">{data?.nextLoop}</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[#73736d]">This plan is a launch hypothesis. Replace assumptions with real audience response and keep the evidence attached to the next ProductForge decision.</p></div><Link href={`/projects/${projectId}/build`} className="inline-flex shrink-0 rounded-full border border-[#d5d5cd] px-5 py-3 text-sm font-semibold transition hover:-translate-y-0.5 hover:border-[#bdbdb4] hover:bg-white">← Product builder</Link></div></section>
     </div>
