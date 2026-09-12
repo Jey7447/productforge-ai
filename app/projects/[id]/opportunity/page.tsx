@@ -59,10 +59,41 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
     .maybeSingle();
 
   const typedOpportunity = opportunity as Opportunity | null;
-  const sourceIds = typedOpportunity?.evidence_summary?.sources?.map((source) => source.sourceId).filter(Boolean) ?? [];
-  const { data: evidenceRows } = sourceIds.length
-    ? await supabase.from("research_evidence").select("id,source_url,source_domain,source_type,title,snippet,relevance_score,credibility_score").in("id", sourceIds)
-    : { data: [] };
+  let evidence: Evidence[] = [];
+
+  if (typedOpportunity) {
+    const sourceIds = typedOpportunity.evidence_summary?.sources?.map((source) => source.sourceId).filter((sourceId): sourceId is string => Boolean(sourceId)) ?? [];
+
+    if (sourceIds.length) {
+      const { data: linkedRows } = await supabase
+        .from("research_evidence")
+        .select("id,source_url,source_domain,source_type,title,snippet,relevance_score,credibility_score")
+        .in("id", sourceIds)
+        .order("relevance_score", { ascending: false });
+      evidence = (linkedRows ?? []) as Evidence[];
+    }
+
+    if (!evidence.length) {
+      const { data: run } = await supabase
+        .from("research_runs")
+        .select("id")
+        .eq("project_id", id)
+        .eq("status", "completed")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (run) {
+        const { data: runEvidence } = await supabase
+          .from("research_evidence")
+          .select("id,source_url,source_domain,source_type,title,snippet,relevance_score,credibility_score")
+          .eq("research_run_id", run.id)
+          .order("relevance_score", { ascending: false })
+          .limit(8);
+        evidence = (runEvidence ?? []) as Evidence[];
+      }
+    }
+  }
 
   const score = Math.round(Number(typedOpportunity?.opportunity_score ?? 0));
   const confidence = Math.round(Number(typedOpportunity?.confidence_score ?? 0));
@@ -110,7 +141,7 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
               </section>
             </div>
 
-            <OpportunityEvidence evidence={(evidenceRows ?? []) as Evidence[]} summary={typedOpportunity.evidence_summary} />
+            <OpportunityEvidence evidence={evidence} summary={typedOpportunity.evidence_summary} />
 
             <section className="pf-card mt-4 overflow-hidden rounded-[30px] p-7">
               <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="pf-mono text-[9px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Decision surface</p><h2 className="pf-display mt-2 text-3xl font-semibold">Six signals. One opportunity.</h2></div><p className="max-w-md text-xs leading-5 text-[#77776f]">The score is a research-based estimate, not a promise. Confidence describes the strength of the evidence behind the estimate.</p></div>
