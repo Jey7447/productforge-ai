@@ -12,8 +12,17 @@ export async function POST(request:Request){
  const supabase=await createClient();const {data:{user}}=await supabase.auth.getUser();if(!user)return NextResponse.json({error:"Unauthorized"},{status:401});
  const body=await request.json().catch(()=>null) as {projectId?:string;opportunityId?:string}|null;if(!body?.projectId)return NextResponse.json({error:"projectId is required"},{status:400});
  const {data:project}=await supabase.from("projects").select("id,name").eq("id",body.projectId).eq("user_id",user.id).single();if(!project)return NextResponse.json({error:"Project not found"},{status:404});
- const q=supabase.from("opportunities").select("id,title,target_audience,problem,proposed_product,opportunity_score,confidence_score,demand_score,problem_intensity_score,competition_gap_score,monetization_score,specificity_score,buildability_score").eq("project_id",project.id);
- const {data:opportunity,error}=body.opportunityId?await q.eq("id",body.opportunityId).single():await q.order("opportunity_score",{ascending:false}).limit(1).maybeSingle();if(error||!opportunity)return NextResponse.json({error:"No researched opportunity is available to validate yet. Complete research first."},{status:400});
+ const fields="id,title,target_audience,problem,proposed_product,opportunity_score,confidence_score,demand_score,problem_intensity_score,competition_gap_score,monetization_score,specificity_score,buildability_score";
+ let opportunity=null;
+ let error=null;
+ if(body.opportunityId){
+   const result=await supabase.from("opportunities").select(fields).eq("project_id",project.id).eq("id",body.opportunityId).single();opportunity=result.data;error=result.error;
+ } else {
+   const selectedResult=await supabase.from("opportunities").select(fields).eq("project_id",project.id).eq("status","selected").maybeSingle();
+   opportunity=selectedResult.data;
+   if(!opportunity){const topResult=await supabase.from("opportunities").select(fields).eq("project_id",project.id).order("opportunity_score",{ascending:false}).limit(1).maybeSingle();opportunity=topResult.data;error=topResult.error;}
+ }
+ if(error||!opportunity)return NextResponse.json({error:"No researched opportunity is available to validate yet. Complete research first."},{status:400});
  const o=opportunity as Opportunity;
  const {data:linked,count:linkedCount}=await supabase.from("research_evidence").select("source_domain,source_type",{count:"exact"}).eq("opportunity_id",o.id).limit(100);
  let evidence=(linked??[]) as Evidence[];let evidenceCount=linkedCount??evidence.length;
