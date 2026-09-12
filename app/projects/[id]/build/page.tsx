@@ -62,13 +62,28 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
     .single();
   if (!project) notFound();
 
-  const { data: opportunity } = await supabase
+  // The selected opportunity is the source of truth for downstream stages.
+  // Fall back to the highest-scoring opportunity only for projects created
+  // before the decision layer existed.
+  const { data: selectedOpportunity } = await supabase
     .from("opportunities")
     .select("id,title,proposed_product,product_type,target_audience,problem")
     .eq("project_id", id)
-    .order("opportunity_score", { ascending: false })
+    .eq("status", "selected")
     .limit(1)
     .maybeSingle();
+
+  const { data: fallbackOpportunity } = !selectedOpportunity
+    ? await supabase
+        .from("opportunities")
+        .select("id,title,proposed_product,product_type,target_audience,problem")
+        .eq("project_id", id)
+        .order("opportunity_score", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
+
+  const opportunity = selectedOpportunity ?? fallbackOpportunity;
 
   const { data: validation } = opportunity
     ? await supabase
@@ -178,7 +193,7 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
         ) : !validation ? (
           <section className="mt-8 rounded-[30px] border border-[#deded7] bg-white p-8">
             <p className="text-lg font-semibold">Validation is required before building.</p>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-[#73736d]">Pressure-test the opportunity first so the product blueprint is based on an explicit validation decision.</p>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-[#73736d]">Pressure-test the selected opportunity first so the product blueprint is based on an explicit validation decision.</p>
             <Link href={`/projects/${id}/validate`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Open validation →</Link>
           </section>
         ) : validation.decision === "abandon" ? (
@@ -215,7 +230,7 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
           <>
             <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-[#dce88b] bg-[#f5fbd7] px-5 py-4 text-sm text-[#41431f]">
               <span className="grid h-7 w-7 place-items-center rounded-full bg-[#171714] text-xs font-bold text-[#dff77a]">✓</span>
-              <span><strong>Validation passed.</strong> The product builder is unlocked.</span>
+              <span><strong>Validation passed.</strong> The product builder is unlocked for <strong>{opportunity.title}</strong>.</span>
             </div>
             <section className="mt-6 grid gap-4 lg:grid-cols-[.8fr_1.2fr]">
               <aside className="rounded-[30px] bg-[#171714] p-7 text-white">
