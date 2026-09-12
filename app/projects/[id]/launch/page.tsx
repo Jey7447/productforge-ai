@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { LaunchWorkspace } from "@/components/launch-workspace";
+import { LaunchLearningWorkspace } from "@/components/launch-learning";
 import { StageShell } from "@/components/stage-shell";
 
 type Product = { id: string; name: string; tagline: string | null; promise: string | null };
@@ -96,7 +97,14 @@ export default async function LaunchPage({ params }: { params: Promise<{ id: str
             <Link href={`/projects/${id}/build`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Open product builder →</Link>
           </section>
         ) : (
-          <LaunchWorkspace projectId={id} product={typedProduct} initialPlan={reconciledPlan} />
+          <>
+            <LaunchWorkspace projectId={id} product={typedProduct} initialPlan={reconciledPlan} />
+            {reconciledPlan && (
+              <div className="mt-5">
+                <LaunchLearningWorkspace projectId={id} initialLearning={reconciledPlan.plan?.launchLearning ?? null} />
+              </div>
+            )}
+          </>
         )}
       </div>
     </StageShell>
