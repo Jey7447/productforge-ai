@@ -1,6 +1,19 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+type LaunchLearning = {
+  qualifiedReached?: string;
+  salesPageVisits?: string;
+  interested?: string;
+  purchases?: string;
+  objections?: string;
+  positiveSignals?: string;
+  userOutcomes?: string;
+  learning?: string;
+  decision?: string;
+  nextAction?: string;
+};
+
 export async function PATCH(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -9,10 +22,13 @@ export async function PATCH(request: Request) {
   const body = await request.json().catch(() => null) as {
     projectId?: string;
     checklist?: Array<{ item?: string; done?: boolean }>;
+    launchLearning?: LaunchLearning;
   } | null;
 
   if (!body?.projectId) return NextResponse.json({ error: "projectId is required" }, { status: 400 });
-  if (!Array.isArray(body.checklist)) return NextResponse.json({ error: "checklist is required" }, { status: 400 });
+  if (!Array.isArray(body.checklist) && !body.launchLearning) {
+    return NextResponse.json({ error: "checklist or launchLearning is required" }, { status: 400 });
+  }
 
   const { data: project } = await supabase
     .from("projects")
@@ -33,30 +49,24 @@ export async function PATCH(request: Request) {
   if (!launchPlan) return NextResponse.json({ error: "Launch plan not found" }, { status: 404 });
 
   const currentPlan = (launchPlan.plan ?? {}) as Record<string, unknown>;
-  const currentChecklist = Array.isArray(currentPlan.checklist) ? currentPlan.checklist : [];
-  const previousDone = new Map<string, boolean>();
+  const updatedPlan: Record<string, unknown> = { ...currentPlan };
 
-  for (const entry of currentChecklist) {
-    if (!entry || typeof entry !== "object") continue;
-    const item = (entry as { item?: unknown }).item;
-    const done = (entry as { done?: unknown }).done;
-    if (typeof item === "string") previousDone.set(item, Boolean(done));
+  if (Array.isArray(body.checklist)) {
+    const checklist = body.checklist
+      .map((entry) => ({
+        item: typeof entry.item === "string" ? entry.item.trim() : "",
+        done: Boolean(entry.done),
+      }))
+      .filter((entry) => entry.item);
+    updatedPlan.checklist = checklist;
   }
 
-  const checklist = body.checklist.map((entry) => ({
-    item: typeof entry.item === "string" ? entry.item.trim() : "",
-    done: Boolean(entry.done),
-  })).filter((entry) => entry.item);
-
-  const mergedChecklist = checklist.map((entry) => ({
-    ...entry,
-    done: previousDone.has(entry.item) ? entry.done : entry.done,
-  }));
-
-  const updatedPlan = {
-    ...currentPlan,
-    checklist: mergedChecklist,
-  };
+  if (body.launchLearning && typeof body.launchLearning === "object") {
+    updatedPlan.launchLearning = {
+      ...(typeof currentPlan.launchLearning === "object" && currentPlan.launchLearning !== null ? currentPlan.launchLearning : {}),
+      ...body.launchLearning,
+    };
+  }
 
   const { data, error } = await supabase
     .from("launch_plans")
@@ -65,7 +75,7 @@ export async function PATCH(request: Request) {
     .select("id,plan,status")
     .single();
 
-  if (error || !data) return NextResponse.json({ error: `Unable to save launch checklist: ${error?.message ?? "Unknown error"}` }, { status: 500 });
+  if (error || !data) return NextResponse.json({ error: `Unable to save launch plan: ${error?.message ?? "Unknown error"}` }, { status: 500 });
 
   return NextResponse.json(data);
 }
