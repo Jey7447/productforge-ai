@@ -3,6 +3,7 @@ import { Brand } from "@/components/brand";
 import { createClient } from "@/lib/supabase/server";
 import { StageVisual, type StageName } from "@/components/stage-visual";
 import { EvidenceExplorer } from "@/components/evidence-explorer";
+import { NewResearchButton } from "@/components/new-research-button";
 
 const stages = [
   ["Research", ""] as const,
@@ -97,9 +98,12 @@ export async function StageShell({
             <span className="hidden text-[#c7c7bf] sm:block">/</span>
             <span className="hidden max-w-56 truncate text-xs font-semibold text-[#62625c] sm:block">{projectName}</span>
           </div>
-          <Link href={`/projects/${projectId}`} className="pf-lift rounded-full border border-[#d2d2ca] bg-white/85 px-4 py-2 text-xs font-semibold shadow-sm transition hover:border-[#aaa9a0]">
-            Research workspace ↗
-          </Link>
+          <div className="flex items-center gap-3">
+            {active === "Research" && currentStage > 1 && <NewResearchButton projectId={projectId} />}
+            <Link href={`/projects/${projectId}`} className="pf-lift rounded-full border border-[#d2d2ca] bg-white/85 px-4 py-2 text-xs font-semibold shadow-sm transition hover:border-[#aaa9a0]">
+              Research workspace ↗
+            </Link>
+          </div>
         </div>
       </header>
 
