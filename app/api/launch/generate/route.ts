@@ -28,40 +28,15 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => null) as { projectId?: string } | null;
   if (!body?.projectId) return NextResponse.json({ error: "projectId is required" }, { status: 400 });
 
-  const { data: project } = await supabase
-    .from("projects")
-    .select("id,name")
-    .eq("id", body.projectId)
-    .eq("user_id", user.id)
-    .single();
+  const { data: project } = await supabase.from("projects").select("id,name").eq("id", body.projectId).eq("user_id", user.id).single();
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const { data: product } = await supabase
-    .from("products")
-    .select("id,name,tagline,description,format,target_audience,promise")
-    .eq("project_id", project.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: product } = await supabase.from("products").select("id,name,tagline,description,format,target_audience,promise").eq("project_id", project.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (!product) return NextResponse.json({ error: "Create the product blueprint before generating a launch plan." }, { status: 400 });
 
-  const { data: opportunity } = await supabase
-    .from("opportunities")
-    .select("id,title,problem,proposed_product,target_audience,product_type,estimated_price_min,estimated_price_max,confidence_score,opportunity_score")
-    .eq("project_id", project.id)
-    .order("opportunity_score", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: opportunity } = await supabase.from("opportunities").select("id,title,problem,proposed_product,target_audience,product_type,estimated_price_min,estimated_price_max,confidence_score,opportunity_score").eq("project_id", project.id).order("opportunity_score", { ascending: false }).limit(1).maybeSingle();
 
-  const { data: latestRun, error: latestRunError } = await supabase
-    .from("research_runs")
-    .select("id")
-    .eq("project_id", project.id)
-    .eq("status", "completed")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
+  const { data: latestRun, error: latestRunError } = await supabase.from("research_runs").select("id").eq("project_id", project.id).eq("status", "completed").order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (latestRunError) return NextResponse.json({ error: `Unable to locate completed research: ${latestRunError.message}` }, { status: 500 });
 
   let rows: EvidenceRow[] = [];
@@ -69,33 +44,20 @@ export async function POST(request: Request) {
   let domains: string[] = [];
 
   if (opportunity?.id) {
-    const { data: opportunityEvidence, error: evidenceError } = await supabase
-      .from("research_evidence")
-      .select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score")
-      .eq("opportunity_id", opportunity.id)
-      .order("relevance_score", { ascending: false, nullsFirst: false })
-      .limit(20);
+    const { data: opportunityEvidence, error: evidenceError } = await supabase.from("research_evidence").select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score").eq("opportunity_id", opportunity.id).order("relevance_score", { ascending: false, nullsFirst: false }).limit(20);
     if (evidenceError) return NextResponse.json({ error: `Unable to load launch evidence: ${evidenceError.message}` }, { status: 500 });
     rows = (opportunityEvidence ?? []) as EvidenceRow[];
   }
 
   if (!rows.length && latestRun?.id) {
-    const { data: runEvidence, error: runEvidenceError, count: runEvidenceCount } = await supabase
-      .from("research_evidence")
-      .select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score", { count: "exact" })
-      .eq("research_run_id", latestRun.id)
-      .order("relevance_score", { ascending: false, nullsFirst: false })
-      .limit(20);
+    const { data: runEvidence, error: runEvidenceError, count: runEvidenceCount } = await supabase.from("research_evidence").select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score", { count: "exact" }).eq("research_run_id", latestRun.id).order("relevance_score", { ascending: false, nullsFirst: false }).limit(20);
     if (runEvidenceError) return NextResponse.json({ error: `Unable to load completed research evidence: ${runEvidenceError.message}` }, { status: 500 });
     rows = (runEvidence ?? []) as EvidenceRow[];
     evidenceCount = runEvidenceCount ?? 0;
   }
 
   if (!evidenceCount && latestRun?.id) {
-    const { count: exactCount, error: countError } = await supabase
-      .from("research_evidence")
-      .select("id", { count: "exact", head: true })
-      .eq("research_run_id", latestRun.id);
+    const { count: exactCount, error: countError } = await supabase.from("research_evidence").select("id", { count: "exact", head: true }).eq("research_run_id", latestRun.id);
     if (countError) return NextResponse.json({ error: `Unable to count research evidence: ${countError.message}` }, { status: 500 });
     evidenceCount = exactCount ?? 0;
   }
@@ -104,11 +66,7 @@ export async function POST(request: Request) {
   domains = Array.from(new Set(rows.map((row) => row.source_domain).filter(Boolean))) as string[];
 
   if (latestRun?.id) {
-    const { data: runDomains, error: domainError } = await supabase
-      .from("research_evidence")
-      .select("source_domain")
-      .eq("research_run_id", latestRun.id)
-      .not("source_domain", "is", null);
+    const { data: runDomains, error: domainError } = await supabase.from("research_evidence").select("source_domain").eq("research_run_id", latestRun.id).not("source_domain", "is", null);
     if (domainError) return NextResponse.json({ error: `Unable to summarize research domains: ${domainError.message}` }, { status: 500 });
     domains = Array.from(new Set((runDomains ?? []).map((row) => row.source_domain).filter(Boolean))) as string[];
   }
@@ -120,13 +78,11 @@ export async function POST(request: Request) {
   const minPrice = money(opportunity?.estimated_price_min);
   const maxPrice = money(opportunity?.estimated_price_max);
 
-  const plan = {
+  const plan: Record<string, any> = {
     evidence: {
       evidenceCount,
       sourceDomains: domains,
-      note: evidenceCount
-        ? `Launch recommendations are grounded in ${evidenceCount} research evidence item${evidenceCount === 1 ? "" : "s"}${domains.length ? ` across ${domains.length} source domain${domains.length === 1 ? "" : "s"}` : ""}.`
-        : "No completed research evidence was available, so this plan should be treated as a starting hypothesis.",
+      note: evidenceCount ? `Launch recommendations are grounded in ${evidenceCount} research evidence item${evidenceCount === 1 ? "" : "s"}${domains.length ? ` across ${domains.length} source domain${domains.length === 1 ? "" : "s"}` : ""}.` : "No completed research evidence was available, so this plan should be treated as a starting hypothesis.",
     },
     audience: {
       primary: audience,
@@ -177,17 +133,10 @@ export async function POST(request: Request) {
   // Refreshing the plan must not erase real launch progress or recorded
   // learning. The generated strategy can change; the user's evidence log
   // belongs to the project and is therefore carried forward.
-  const { data: existing } = await supabase
-    .from("launch_plans")
-    .select("id,plan")
-    .eq("project_id", project.id)
-    .maybeSingle();
-
+  const { data: existing } = await supabase.from("launch_plans").select("id,plan").eq("project_id", project.id).maybeSingle();
   const existingPlan = (existing?.plan ?? {}) as Record<string, any>;
   if (Array.isArray(existingPlan.checklist)) plan.checklist = existingPlan.checklist;
-  if (existingPlan.launchLearning && typeof existingPlan.launchLearning === "object") {
-    plan.launchLearning = existingPlan.launchLearning;
-  }
+  if (existingPlan.launchLearning && typeof existingPlan.launchLearning === "object") plan.launchLearning = existingPlan.launchLearning;
 
   const payload = { project_id: project.id, product_id: product.id, opportunity_id: opportunity?.id ?? null, status: "ready", plan };
   const result = existing
