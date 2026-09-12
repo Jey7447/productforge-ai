@@ -10,7 +10,7 @@ export function BuildButton({ projectId }: { projectId: string }) {
   async function generateBlueprint() {
     setRunning(true);
     setError(false);
-    setMessage("Turning the validated opportunity into a product blueprint…");
+    setMessage("Architecting the product from the validated opportunity and research evidence…");
 
     try {
       const response = await fetch("/api/build/generate", {
@@ -26,7 +26,11 @@ export function BuildButton({ projectId }: { projectId: string }) {
         return;
       }
 
-      setMessage(data.created ? "Product blueprint created." : "Product blueprint already exists.");
+      setMessage(
+        data.created
+          ? `Blueprint created: ${data.moduleCount ?? 0} modules and ${data.lessonCount ?? 0} lessons.`
+          : "Product blueprint already exists.",
+      );
       window.location.reload();
     } catch {
       setError(true);
@@ -44,7 +48,7 @@ export function BuildButton({ projectId }: { projectId: string }) {
         disabled={running}
         className="inline-flex items-center gap-2 rounded-full bg-[#d9f06a] px-5 py-3 text-sm font-bold text-[#171714] transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {running ? "Building…" : "Generate product blueprint →"}
+        {running ? "Building blueprint…" : "Generate product blueprint →"}
       </button>
       {message && <p className={`mt-3 text-xs leading-5 ${error ? "text-red-600" : "text-[#73736d]"}`}>{message}</p>}
     </div>
