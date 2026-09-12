@@ -53,10 +53,6 @@ export async function POST(request: Request) {
     .limit(1)
     .maybeSingle();
 
-  // The completed research run is the canonical source for launch evidence.
-  // Opportunity-level evidence is preferred when it exists, but the launch
-  // advisor must never report zero simply because opportunity_id mappings
-  // have not yet been created.
   const { data: latestRun, error: latestRunError } = await supabase
     .from("research_runs")
     .select("id")
@@ -83,9 +79,6 @@ export async function POST(request: Request) {
     rows = (opportunityEvidence ?? []) as EvidenceRow[];
   }
 
-  // If the selected opportunity has no direct evidence links, use the latest
-  // completed research run. Count the complete run separately from the
-  // limited rows loaded into the generation context.
   if (!rows.length && latestRun?.id) {
     const { data: runEvidence, error: runEvidenceError, count: runEvidenceCount } = await supabase
       .from("research_evidence")
@@ -110,8 +103,6 @@ export async function POST(request: Request) {
   if (!evidenceCount) evidenceCount = rows.length;
   domains = Array.from(new Set(rows.map((row) => row.source_domain).filter(Boolean))) as string[];
 
-  // When we loaded a limited evidence subset, calculate domain coverage from
-  // the complete research run so the launch plan does not under-report it.
   if (latestRun?.id) {
     const { data: runDomains, error: domainError } = await supabase
       .from("research_evidence")
@@ -183,7 +174,21 @@ export async function POST(request: Request) {
     nextLoop: "Launch → observe real response → capture evidence → improve the offer/product → repeat.",
   };
 
-  const { data: existing } = await supabase.from("launch_plans").select("id").eq("project_id", project.id).maybeSingle();
+  // Refreshing the plan must not erase real launch progress or recorded
+  // learning. The generated strategy can change; the user's evidence log
+  // belongs to the project and is therefore carried forward.
+  const { data: existing } = await supabase
+    .from("launch_plans")
+    .select("id,plan")
+    .eq("project_id", project.id)
+    .maybeSingle();
+
+  const existingPlan = (existing?.plan ?? {}) as Record<string, any>;
+  if (Array.isArray(existingPlan.checklist)) plan.checklist = existingPlan.checklist;
+  if (existingPlan.launchLearning && typeof existingPlan.launchLearning === "object") {
+    plan.launchLearning = existingPlan.launchLearning;
+  }
+
   const payload = { project_id: project.id, product_id: product.id, opportunity_id: opportunity?.id ?? null, status: "ready", plan };
   const result = existing
     ? await supabase.from("launch_plans").update(payload).eq("id", existing.id).select("id,plan,status").single()
