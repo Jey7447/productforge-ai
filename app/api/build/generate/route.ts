@@ -52,10 +52,16 @@ const blueprintSchema = z.object({
   modules: z.array(moduleSchema).min(4).max(6),
 });
 
-async function loadEvidence(supabase: Awaited<ReturnType<typeof createClient>>, projectId: string, opportunityId: string) {
+async function loadEvidence(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectId: string,
+  opportunityId: string,
+) {
   const { data, error } = await supabase
     .from("research_evidence")
-    .select("id,source_domain,title,source_url,content_excerpt,snippet,credibility_score,relevance_score")
+    .select(
+      "id,source_domain,title,source_url,content_excerpt,snippet,credibility_score,relevance_score",
+    )
     .eq("opportunity_id", opportunityId)
     .order("credibility_score", { ascending: false, nullsFirst: false })
     .limit(30);
@@ -63,12 +69,24 @@ async function loadEvidence(supabase: Awaited<ReturnType<typeof createClient>>, 
   if (error) throw new Error(`Unable to load opportunity evidence: ${error.message}`);
   if (data?.length) return data;
 
+  const { data: latestRun, error: latestRunError } = await supabase
+    .from("research_runs")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("status", "completed")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (latestRunError) throw new Error(`Unable to locate completed research: ${latestRunError.message}`);
+  if (!latestRun) return [];
+
   const { data: fallback, error: fallbackError } = await supabase
     .from("research_evidence")
-    .select("id,source_domain,title,source_url,content_excerpt,snippet,credibility_score,relevance_score")
-    .eq("research_run_id", (
-      await supabase.from("research_runs").select("id").eq("project_id", projectId).eq("status", "completed").order("created_at", { ascending: false }).limit(1).maybeSingle()
-    ).data?.id ?? "")
+    .select(
+      "id,source_domain,title,source_url,content_excerpt,snippet,credibility_score,relevance_score",
+    )
+    .eq("research_run_id", latestRun.id)
     .order("credibility_score", { ascending: false, nullsFirst: false })
     .limit(30);
 
@@ -76,13 +94,63 @@ async function loadEvidence(supabase: Awaited<ReturnType<typeof createClient>>, 
   return fallback ?? [];
 }
 
+async function removePartialProduct(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  productId: string,
+) {
+  const { data: moduleRows, error: moduleLoadError } = await supabase
+    .from("modules")
+    .select("id")
+    .eq("product_id", productId);
+
+  if (moduleLoadError) throw new Error(`Unable to inspect partial product: ${moduleLoadError.message}`);
+
+  const moduleIds = (moduleRows ?? []).map((module) => module.id);
+
+  if (moduleIds.length) {
+    const { error: exerciseError } = await supabase
+      .from("exercises")
+      .delete()
+      .in("module_id", moduleIds);
+    if (exerciseError) throw new Error(`Unable to clean up exercises: ${exerciseError.message}`);
+
+    const { error: worksheetError } = await supabase
+      .from("worksheets")
+      .delete()
+      .in("module_id", moduleIds);
+    if (worksheetError) throw new Error(`Unable to clean up worksheets: ${worksheetError.message}`);
+
+    const { error: lessonError } = await supabase
+      .from("lessons")
+      .delete()
+      .in("module_id", moduleIds);
+    if (lessonError) throw new Error(`Unable to clean up lessons: ${lessonError.message}`);
+
+    const { error: moduleError } = await supabase
+      .from("modules")
+      .delete()
+      .in("id", moduleIds);
+    if (moduleError) throw new Error(`Unable to clean up modules: ${moduleError.message}`);
+  }
+
+  const { error: productError } = await supabase
+    .from("products")
+    .delete()
+    .eq("id", productId);
+  if (productError) throw new Error(`Unable to clean up product: ${productError.message}`);
+}
+
 export async function POST(request: Request) {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const body = await request.json().catch(() => null) as { projectId?: string } | null;
-  if (!body?.projectId) return NextResponse.json({ error: "projectId is required" }, { status: 400 });
+  const body = (await request.json().catch(() => null)) as { projectId?: string } | null;
+  if (!body?.projectId) {
+    return NextResponse.json({ error: "projectId is required" }, { status: 400 });
+  }
 
   const { data: project } = await supabase
     .from("projects")
@@ -101,7 +169,10 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!opportunity) {
-    return NextResponse.json({ error: "Complete research before building a product blueprint." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Complete research before building a product blueprint." },
+      { status: 400 },
+    );
   }
 
   const typedOpportunity = opportunity as Opportunity;
@@ -116,12 +187,21 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!validation) {
-    return NextResponse.json({ error: "Validate the opportunity before generating a product blueprint." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Validate the opportunity before generating a product blueprint." },
+      { status: 400 },
+    );
   }
 
   const typedValidation = validation as ValidationReport;
   if (typedValidation.decision === "abandon") {
-    return NextResponse.json({ error: "This opportunity was marked for abandonment. Refine or select another opportunity before building." }, { status: 400 });
+    return NextResponse.json(
+      {
+        error:
+          "This opportunity was marked for abandonment. Refine or select another opportunity before building.",
+      },
+      { status: 400 },
+    );
   }
 
   let refinementPassed = false;
@@ -137,18 +217,25 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (refinementError) {
-      return NextResponse.json({ error: `Unable to verify refinement test: ${refinementError.message}` }, { status: 500 });
+      return NextResponse.json(
+        { error: `Unable to verify refinement test: ${refinementError.message}` },
+        { status: 500 },
+      );
     }
 
     refinementPassed = refinementTest?.status === "passed";
   }
 
   const validationPassed = typedValidation.decision === "proceed" || refinementPassed;
-
   if (!validationPassed) {
-    return NextResponse.json({ error: "The opportunity must pass validation before a product blueprint can be generated." }, { status: 400 });
+    return NextResponse.json(
+      { error: "The opportunity must pass validation before a product blueprint can be generated." },
+      { status: 400 },
+    );
   }
 
+  // A completed product is idempotent. A product with no modules is treated as
+  // an interrupted previous generation and is safely removed before retrying.
   const { data: existingProduct } = await supabase
     .from("products")
     .select("id")
@@ -158,12 +245,43 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (existingProduct) {
-    return NextResponse.json({ productId: existingProduct.id, created: false });
+    const { count: moduleCount, error: moduleCountError } = await supabase
+      .from("modules")
+      .select("id", { count: "exact", head: true })
+      .eq("product_id", existingProduct.id);
+
+    if (moduleCountError) {
+      return NextResponse.json(
+        { error: `Unable to verify existing product: ${moduleCountError.message}` },
+        { status: 500 },
+      );
+    }
+
+    if ((moduleCount ?? 0) > 0) {
+      return NextResponse.json({ productId: existingProduct.id, created: false });
+    }
+
+    try {
+      await removePartialProduct(supabase, existingProduct.id);
+    } catch (cleanupError) {
+      return NextResponse.json(
+        {
+          error:
+            cleanupError instanceof Error
+              ? cleanupError.message
+              : "Unable to clean up an interrupted product generation.",
+        },
+        { status: 500 },
+      );
+    }
   }
 
   const evidence = await loadEvidence(supabase, project.id, typedOpportunity.id);
   if (!evidence.length) {
-    return NextResponse.json({ error: "Product generation requires research evidence for the selected opportunity." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Product generation requires research evidence for the selected opportunity." },
+      { status: 400 },
+    );
   }
 
   const evidencePacket = evidence.map((item) => ({
@@ -176,6 +294,8 @@ export async function POST(request: Request) {
     relevance: item.relevance_score,
   }));
 
+  let createdProductId: string | null = null;
+
   try {
     const { object: blueprint } = await generateObject({
       model: getResearchModel(),
@@ -184,7 +304,7 @@ export async function POST(request: Request) {
 
 Rules:
 1. The opportunity, validation report, and supplied research evidence are the factual foundation. Do not invent market facts, statistics, customer quotes, competitors, prices, or demand claims.
-2. Create a product that directly addresses the validated problem and the target audience. Do not drift into a generic course about the broad topic.
+2. Create a product that directly addresses the validated problem and target audience. Do not drift into a generic product about the broad topic.
 3. The product must have a clear transformation: starting state -> method -> concrete outcome.
 4. Make modules progressive. Each module should have 1–3 lessons, one practical exercise, and one worksheet.
 5. Lessons must be actionable and specific enough that a real creator could expand them into finished content.
@@ -192,8 +312,9 @@ Rules:
 7. Worksheets must contain useful prompts that map to the exercise and the module outcome.
 8. Treat the validation report as a constraint. Incorporate its recommended changes where relevant.
 9. Do not claim the product is guaranteed to sell or make money.
-10. Keep the scope realistic for a first digital-product version.`
-      , prompt: `Create the first evidence-grounded ProductForge blueprint.
+10. Keep the scope realistic for a first digital-product version.
+11. Prefer a focused first version over a bloated curriculum.`,
+      prompt: `Create the first evidence-grounded ProductForge blueprint.
 
 PROJECT
 Name: ${project.name}
@@ -213,7 +334,7 @@ Recommended changes: ${typedValidation.recommended_changes || "None recorded"}
 RESEARCH EVIDENCE
 ${JSON.stringify(evidencePacket, null, 2)}
 
-Return a cohesive product blueprint. Use the evidence to sharpen the audience, promise, scope, and practical sequence. Do not cite or quote sources in the product copy; the ProductForge interface will keep the research record alongside the blueprint.`
+Return a cohesive product blueprint. Use the evidence to sharpen the audience, promise, scope, and practical sequence. Do not cite or quote sources in the product copy; the ProductForge interface will keep the research record alongside the blueprint.`,
     });
 
     const { data: product, error: productError } = await supabase
@@ -232,8 +353,10 @@ Return a cohesive product blueprint. Use the evidence to sharpen the audience, p
       .single();
 
     if (productError || !product) {
-      return NextResponse.json({ error: productError?.message ?? "Unable to create product blueprint" }, { status: 500 });
+      throw new Error(productError?.message ?? "Unable to create product blueprint");
     }
+
+    createdProductId = product.id;
 
     for (const [moduleIndex, moduleBlueprint] of blueprint.modules.entries()) {
       const { data: module, error: moduleError } = await supabase
@@ -248,7 +371,9 @@ Return a cohesive product blueprint. Use the evidence to sharpen the audience, p
         .select("id")
         .single();
 
-      if (moduleError || !module) throw new Error(moduleError?.message ?? "Unable to create product module");
+      if (moduleError || !module) {
+        throw new Error(moduleError?.message ?? "Unable to create product module");
+      }
 
       for (const [lessonIndex, lessonBlueprint] of moduleBlueprint.lessons.entries()) {
         const { data: lesson, error: lessonError } = await supabase
@@ -263,7 +388,9 @@ Return a cohesive product blueprint. Use the evidence to sharpen the audience, p
           .select("id")
           .single();
 
-        if (lessonError || !lesson) throw new Error(lessonError?.message ?? "Unable to create product lesson");
+        if (lessonError || !lesson) {
+          throw new Error(lessonError?.message ?? "Unable to create product lesson");
+        }
 
         if (lessonIndex === 0) {
           const { error: exerciseError } = await supabase.from("exercises").insert({
@@ -305,8 +432,23 @@ Return a cohesive product blueprint. Use the evidence to sharpen the audience, p
       lessonCount: blueprint.modules.reduce((sum, item) => sum + item.lessons.length, 0),
     });
   } catch (error) {
-    return NextResponse.json({
-      error: error instanceof Error ? error.message : "Product blueprint generation failed",
-    }, { status: 500 });
+    let cleanupMessage = "";
+
+    if (createdProductId) {
+      try {
+        await removePartialProduct(supabase, createdProductId);
+      } catch (cleanupError) {
+        cleanupMessage = ` Cleanup also failed: ${
+          cleanupError instanceof Error ? cleanupError.message : "unknown cleanup error"
+        }`;
+      }
+    }
+
+    return NextResponse.json(
+      {
+        error: `${error instanceof Error ? error.message : "Product blueprint generation failed"}.${cleanupMessage}`,
+      },
+      { status: 500 },
+    );
   }
 }
