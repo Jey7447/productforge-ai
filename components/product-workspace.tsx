@@ -110,6 +110,12 @@ export function ProductWorkspace({
     setEditing(type);
     setSaveMessage("");
     setSaveError(false);
+
+    if (type === "product") {
+      window.setTimeout(() => {
+        document.getElementById("product-editor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 0);
+    }
   }
 
   function cancelEdit() {
@@ -173,7 +179,7 @@ export function ProductWorkspace({
               <h2 className="mt-3 text-3xl font-semibold">{productState.name}</h2>
               <p className="mt-2 text-sm font-medium text-[#d9f06a]">{productState.tagline || "Evidence-grounded product blueprint"}</p>
             </div>
-            <button type="button" onClick={() => startEdit("product")} className="rounded-full border border-white/15 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-white/65 transition hover:bg-white/10 hover:text-white">Edit</button>
+            <button type="button" onClick={() => startEdit("product")} className="relative z-10 cursor-pointer rounded-full border border-white/15 px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-white/65 transition hover:bg-white/10 hover:text-white">Edit product</button>
           </div>
           <p className="mt-5 text-sm leading-7 text-white/60">{productState.description}</p>
           <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
@@ -222,7 +228,7 @@ export function ProductWorkspace({
       </section>
 
       {editing === "product" && (
-        <section className="rounded-[30px] border border-[#171714] bg-white p-7 shadow-sm">
+        <section id="product-editor" className="scroll-mt-24 rounded-[30px] border-2 border-[#171714] bg-white p-7 shadow-lg">
           <div className="flex items-center justify-between gap-4">
             <div><p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Edit product</p><h3 className="mt-2 text-2xl font-semibold">Product concept</h3></div>
             <button type="button" onClick={cancelEdit} className="text-xs font-semibold text-[#73736d]">Cancel</button>
