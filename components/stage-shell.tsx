@@ -29,11 +29,13 @@ export async function StageShell({
   projectName,
   active,
   children,
+  hideResearchExplorer = false,
 }: {
   projectId: string;
   projectName: string;
   active: string;
   children: React.ReactNode;
+  hideResearchExplorer?: boolean;
 }) {
   const supabase = await createClient();
   const { data: project } = await supabase
@@ -72,7 +74,7 @@ export async function StageShell({
         .eq("search_id", latestRun.opportunity_search_id)
     : { count: 0 };
 
-  const { data: evidenceRows } = active === "Research" && latestRun?.id
+  const { data: evidenceRows } = active === "Research" && latestRun?.id && !hideResearchExplorer
     ? await supabase
         .from("research_evidence")
         .select("id,source_url,source_domain,source_type,title,snippet,relevance_score,credibility_score")
@@ -100,7 +102,7 @@ export async function StageShell({
             <span className="hidden max-w-56 truncate text-xs font-semibold text-[#62625c] sm:block">{projectName}</span>
           </div>
           <div className="flex items-center gap-3">
-            {active === "Research" && currentStage > 1 && <NewResearchButton projectId={projectId} />}
+            {active === "Research" && currentStage > 1 && !hideResearchExplorer && <NewResearchButton projectId={projectId} />}
             {active === "Research" && (
               <a
                 href={`/projects/${projectId}/research-history`}
@@ -154,7 +156,7 @@ export async function StageShell({
         </div>
 
         <StageVisual active={stageName} evidenceCount={evidenceCount ?? 0} opportunityCount={opportunityCount ?? 0} />
-        {active === "Research" && <EvidenceExplorer evidence={(evidenceRows ?? []) as EvidenceRow[]} />}
+        {active === "Research" && !hideResearchExplorer && <EvidenceExplorer evidence={(evidenceRows ?? []) as EvidenceRow[]} />}
       </div>
 
       <div className="mx-auto max-w-[1440px] px-5 pb-16 sm:px-8 lg:px-10">{children}</div>
