@@ -39,11 +39,22 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
 
   const { data: opportunity } = await supabase
     .from("opportunities")
-    .select("title,proposed_product,product_type,target_audience,problem")
+    .select("id,title,proposed_product,product_type,target_audience,problem")
     .eq("project_id", id)
     .order("opportunity_score", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  const { data: validation } = opportunity
+    ? await supabase
+        .from("validation_reports")
+        .select("id,decision,confidence_score")
+        .eq("project_id", id)
+        .eq("opportunity_id", opportunity.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
 
   const { data: product } = await supabase
     .from("products")
@@ -64,6 +75,7 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
 
   const modules = (moduleRows ?? []) as Module[];
   const ready = Boolean(typedProduct && modules.length);
+  const validatedToBuild = validation?.decision === "proceed" || validation?.decision === "refine";
 
   return (
     <StageShell projectId={id} projectName={project.name} active="Build">
@@ -81,9 +93,21 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
 
         {!opportunity ? (
           <section className="mt-8 rounded-[30px] border border-[#deded7] bg-white p-8">
-            <p className="text-lg font-semibold">Research and validation are required first.</p>
-            <p className="mt-2 max-w-xl text-sm leading-6 text-[#73736d]">ProductForge only creates a product blueprint after it has an opportunity and a validation decision to build from.</p>
+            <p className="text-lg font-semibold">Research is required before building.</p>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-[#73736d]">ProductForge needs a researched opportunity before it can create a product blueprint.</p>
             <Link href={`/projects/${id}`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Back to research →</Link>
+          </section>
+        ) : !validation ? (
+          <section className="mt-8 rounded-[30px] border border-[#deded7] bg-white p-8">
+            <p className="text-lg font-semibold">Validation is required before building.</p>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-[#73736d]">Pressure-test the opportunity first so the product blueprint is based on an explicit validation decision.</p>
+            <Link href={`/projects/${id}/validate`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Open validation →</Link>
+          </section>
+        ) : validation.decision === "abandon" ? (
+          <section className="mt-8 rounded-[30px] border border-[#deded7] bg-white p-8">
+            <p className="text-lg font-semibold">This opportunity is not ready to build.</p>
+            <p className="mt-2 max-w-xl text-sm leading-6 text-[#73736d]">Validation recommends not building this version yet. Review the evidence and refine or select another opportunity before creating a product.</p>
+            <Link href={`/projects/${id}/validate`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Review validation →</Link>
           </section>
         ) : !typedProduct ? (
           <section className="mt-8 grid gap-4 lg:grid-cols-[.8fr_1.2fr]">
