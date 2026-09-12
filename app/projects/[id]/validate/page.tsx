@@ -115,9 +115,7 @@ export default async function ValidatePage({ params }: { params: Promise<{ id: s
           <div>
             <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#8a8a82]">03 · Validation</p>
             <h1 className="pf-display mt-3 max-w-4xl text-5xl font-semibold leading-[.94] sm:text-6xl">Pressure-test the opportunity.</h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-[#73736d]">
-              Turn the strongest research signals into a decision framework. ProductForge highlights what supports the idea, what is weak, and what could disprove it.
-            </p>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-[#73736d]">Turn the strongest research signals into a decision framework. ProductForge highlights what supports the idea, what is weak, and what could disprove it.</p>
           </div>
           {!typedReport && typedOpportunity && <ValidationButton projectId={id} />}
         </div>
@@ -191,10 +189,14 @@ export default async function ValidatePage({ params }: { params: Promise<{ id: s
 
                 <div className="rounded-[30px] bg-[#d9f06a] p-7">
                   <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#58620e]">Recommended next move</p>
-                  <h3 className="mt-2 text-2xl font-semibold text-[#171714]">Before you build, test the weakest assumption.</h3>
+                  <h3 className="mt-2 text-2xl font-semibold text-[#171714]">{typedReport.decision === "refine" ? "Test the weakest assumption before you build." : typedReport.decision === "proceed" ? "Build the smallest useful version." : "Do not build this version yet."}</h3>
                   <p className="mt-3 max-w-3xl text-sm leading-7 text-[#41431f]">{typedReport.recommended_changes}</p>
                   <div className="mt-6 flex flex-wrap gap-3">
-                    <Link href={`/projects/${id}/build`} className="rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Open product plan →</Link>
+                    {typedReport.decision === "refine" ? (
+                      <Link href={`/projects/${id}/refine`} className="rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Open refinement lab →</Link>
+                    ) : typedReport.decision === "proceed" ? (
+                      <Link href={`/projects/${id}/build`} className="rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Open product builder →</Link>
+                    ) : null}
                     <Link href={`/projects/${id}`} className="rounded-full border border-[#171714]/20 px-5 py-3 text-sm font-semibold text-[#171714]">Review research</Link>
                   </div>
                 </div>
