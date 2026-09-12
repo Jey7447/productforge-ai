@@ -19,10 +19,42 @@ export function BuildButton({ projectId }: { projectId: string }) {
         body: JSON.stringify({ projectId }),
       });
       const data = await response.json().catch(() => ({}));
+      const aiError = typeof data.error === "string" ? data.error : "";
+      const aiUnavailable =
+        response.status >= 500 &&
+        /credits|quota|no credits|AI_APICallError|openai|model/i.test(aiError);
+
+      if (!response.ok && aiUnavailable) {
+        setError(false);
+        setMessage("AI generation is unavailable. Creating an evidence-grounded starter blueprint instead…");
+
+        const fallbackResponse = await fetch("/api/build/fallback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId }),
+        });
+        const fallbackData = await fallbackResponse.json().catch(() => ({}));
+
+        if (!fallbackResponse.ok) {
+          setError(true);
+          setMessage(
+            fallbackData.error
+              ? `AI generation is unavailable, and the fallback could not complete: ${fallbackData.error}`
+              : "AI generation is unavailable, and the evidence-grounded fallback could not complete.",
+          );
+          return;
+        }
+
+        setMessage(
+          `Starter blueprint created from the research evidence: ${fallbackData.moduleCount ?? 0} modules and ${fallbackData.lessonCount ?? 0} lessons.`,
+        );
+        window.location.reload();
+        return;
+      }
 
       if (!response.ok) {
         setError(true);
-        setMessage(data.error ?? "The product blueprint could not be generated.");
+        setMessage(aiError || "The product blueprint could not be generated.");
         return;
       }
 
