@@ -45,12 +45,12 @@ export function OpportunityEvidence({
     .filter((item) => item.evidence);
 
   const dimensions = [
-    ["Demand", "demand_score"],
-    ["Problem intensity", "problem_intensity_score"],
-    ["Competition gap", "competition_gap_score"],
-    ["Monetization", "monetization_score"],
-    ["Specificity", "specificity_score"],
-    ["Buildability", "buildability_score"],
+    ["Demand", "demand"],
+    ["Problem intensity", "problemIntensity"],
+    ["Competition gap", "competitionGap"],
+    ["Monetization", "monetization"],
+    ["Specificity", "specificity"],
+    ["Buildability", "buildability"],
   ] as const;
 
   return (
