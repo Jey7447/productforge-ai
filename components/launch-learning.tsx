@@ -51,6 +51,7 @@ export function LaunchLearningWorkspace({ projectId, initialLearning, initialDia
   const [values, setValues] = useState<LaunchLearning>(() => normalize(initialLearning));
   const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(initialDiagnosis ?? null);
   const [saving, setSaving] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
 
@@ -62,7 +63,7 @@ export function LaunchLearningWorkspace({ projectId, initialLearning, initialDia
   }
 
   async function save() {
-    if (saving) return;
+    if (saving || resetting) return;
     setSaving(true);
     setSaved(false);
     setError("");
@@ -100,6 +101,38 @@ export function LaunchLearningWorkspace({ projectId, initialLearning, initialDia
       setSaving(false);
     }
   }
+
+  async function resetTestResults() {
+    if (saving || resetting) return;
+    if (!window.confirm("Clear the launch results and diagnosis? Your launch plan and checklist will be kept.")) return;
+
+    setResetting(true);
+    setSaved(false);
+    setError("");
+
+    try {
+      const response = await fetch("/api/launch/update", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, resetLaunchLearning: true }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(payload.error ?? "Could not clear launch results.");
+        return;
+      }
+
+      setValues(normalize(payload.plan?.launchLearning));
+      setDiagnosis(null);
+      setSaved(true);
+    } catch {
+      setError("Could not clear launch results. Try again.");
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  const hasResults = Object.values(values).some((value) => value.trim().length > 0) || diagnosis !== null;
 
   return (
     <section className="rounded-[30px] border border-[#deded7] bg-white p-7 sm:p-8">
@@ -153,10 +186,15 @@ export function LaunchLearningWorkspace({ projectId, initialLearning, initialDia
       {diagnosis && <LaunchDiagnosis diagnosis={diagnosis} />}
 
       <div className="mt-5 flex flex-wrap items-center gap-3">
-        <button type="button" onClick={save} disabled={saving} className="rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50">
+        <button type="button" onClick={save} disabled={saving || resetting} className="rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50">
           {saving ? "Saving results…" : "Save launch results →"}
         </button>
-        {saved && <span className="text-xs font-semibold text-[#697500]">Saved to this project.</span>}
+        {hasResults && (
+          <button type="button" onClick={resetTestResults} disabled={saving || resetting} className="rounded-full border border-[#deded7] bg-white px-4 py-3 text-xs font-semibold text-[#73736d] transition hover:border-[#b8b8b0] hover:text-[#171714] disabled:cursor-not-allowed disabled:opacity-50">
+            {resetting ? "Clearing…" : "Clear test results"}
+          </button>
+        )}
+        {saved && <span className="text-xs font-semibold text-[#697500]">{resetting ? "" : "Saved to this project."}</span>}
         {error && <span className="text-xs font-semibold text-red-600">{error}</span>}
       </div>
     </section>
