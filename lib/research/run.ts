@@ -89,7 +89,7 @@ export async function runResearch(projectId: string, input: ResearchInput) {
       completed_at: completedAt,
     }).eq("id", search.id);
 
-    await supabase.from("projects").update({ status: "researching", current_stage: 1 }).eq("id", projectId);
+    await supabase.from("projects").update({ status: "researching", current_stage: 2 }).eq("id", projectId);
     return { runId: run.id, searchId: search.id, evidenceCount: uniqueEvidence.length, opportunities, synthesis };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Research failed";
