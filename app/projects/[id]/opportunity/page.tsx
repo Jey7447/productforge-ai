@@ -71,12 +71,29 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
     .single();
   if (!project) notFound();
 
-  const { data: opportunities } = await supabase
+  // The Opportunity stage represents the latest completed research run.
+  // Do not mix opportunities from older runs into the current decision surface.
+  const { data: latestRun } = await supabase
+    .from("research_runs")
+    .select("id,opportunity_search_id,created_at")
+    .eq("project_id", id)
+    .eq("status", "completed")
+    .not("opportunity_search_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  let opportunityQuery = supabase
     .from("opportunities")
     .select("id,title,niche,target_audience,problem,proposed_product,product_type,rationale,opportunity_score,confidence_score,demand_score,problem_intensity_score,competition_gap_score,monetization_score,specificity_score,buildability_score,estimated_price_min,estimated_price_max,evidence_summary,status")
     .eq("project_id", id)
     .order("opportunity_score", { ascending: false });
 
+  if (latestRun?.opportunity_search_id) {
+    opportunityQuery = opportunityQuery.eq("search_id", latestRun.opportunity_search_id);
+  }
+
+  const { data: opportunities } = await opportunityQuery;
   const typedOpportunities = (opportunities ?? []) as Opportunity[];
   const selected = typedOpportunities.find((item) => item.status === "selected") ?? typedOpportunities[0] ?? null;
   const evidenceSummary = parseEvidenceSummary(selected?.evidence_summary);
@@ -92,24 +109,14 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
         .order("relevance_score", { ascending: false });
       evidence = (linkedRows ?? []) as Evidence[];
     }
-    if (!evidence.length) {
-      const { data: run } = await supabase
-        .from("research_runs")
-        .select("id")
-        .eq("project_id", id)
-        .eq("status", "completed")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (run) {
-        const { data: runEvidence } = await supabase
-          .from("research_evidence")
-          .select("id,source_url,source_domain,source_type,title,snippet,relevance_score,credibility_score")
-          .eq("research_run_id", run.id)
-          .order("relevance_score", { ascending: false })
-          .limit(8);
-        evidence = (runEvidence ?? []) as Evidence[];
-      }
+    if (!evidence.length && latestRun?.id) {
+      const { data: runEvidence } = await supabase
+        .from("research_evidence")
+        .select("id,source_url,source_domain,source_type,title,snippet,relevance_score,credibility_score")
+        .eq("research_run_id", latestRun.id)
+        .order("relevance_score", { ascending: false })
+        .limit(8);
+      evidence = (runEvidence ?? []) as Evidence[];
     }
   }
 
@@ -131,19 +138,19 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
         <div className="mt-4 grid gap-8 lg:grid-cols-[1fr_360px] lg:items-end">
           <div>
             <h1 className="pf-display max-w-4xl text-5xl font-semibold leading-[.91] sm:text-6xl">Choose the opportunity worth pressure-testing.</h1>
-            <p className="mt-5 max-w-2xl text-sm leading-7 text-[#707069]">ProductForge turns the research landscape into a ranked decision surface. Compare the signals, inspect the evidence, shortlist promising directions, then select one for validation.</p>
+            <p className="mt-5 max-w-2xl text-sm leading-7 text-[#707069]">ProductForge turns the latest research landscape into a ranked decision surface. Compare the signals, inspect the evidence, shortlist promising directions, then select one for validation.</p>
           </div>
           {selected && <div className="pf-glow relative overflow-hidden rounded-[30px] bg-[#171714] p-6 text-white shadow-[0_24px_60px_rgba(21,21,19,.16)]">
             <div className="absolute -right-16 -top-20 h-40 w-40 rounded-full bg-[#d9f06a]/15 blur-3xl" />
             <div className="relative flex items-center justify-between gap-5">
-              <div><p className="pf-mono text-[9px] font-semibold uppercase tracking-[.16em] text-white/45">Leading signal</p><p className="pf-display mt-2 text-5xl font-semibold text-[#d9f06a]">{score}<span className="text-lg text-white/35">/100</span></p><p className="pf-mono mt-2 text-[9px] uppercase tracking-[.12em] text-white/40">{confidence}% evidence confidence</p></div>
+              <div><p className="pf-mono text-[9px] font-semibold uppercase tracking-[.16em] text-white/45">Selected signal</p><p className="pf-display mt-2 text-5xl font-semibold text-[#d9f06a]">{score}<span className="text-lg text-white/35">/100</span></p><p className="pf-mono mt-2 text-[9px] uppercase tracking-[.12em] text-white/40">{confidence}% evidence confidence</p></div>
               <div className="relative grid h-24 w-24 place-items-center rounded-full border border-white/10"><div className="absolute inset-2 rounded-full" style={{ background: `conic-gradient(#d9f06a ${score * 3.6}deg, rgba(255,255,255,.07) 0deg)` }} /><div className="relative grid h-[72px] w-[72px] place-items-center rounded-full bg-[#171714]"><span className="pf-mono text-[10px] text-white/70">SIGNAL</span></div></div>
             </div>
           </div>}
         </div>
 
         {!typedOpportunities.length ? (
-          <section className="mt-8 rounded-[30px] border border-[#deded7] bg-white p-8"><p className="text-lg font-semibold">No opportunities have been generated yet.</p><p className="mt-2 max-w-2xl text-sm leading-6 text-[#707069]">Complete the research stage first. ProductForge will use collected market evidence to generate and rank distinct product opportunities here.</p><Link href={`/projects/${id}`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Back to research →</Link></section>
+          <section className="mt-8 rounded-[30px] border border-[#deded7] bg-white p-8"><p className="text-lg font-semibold">No opportunities have been generated yet.</p><p className="mt-2 max-w-2xl text-sm leading-6 text-[#707069]">Complete the research stage first. ProductForge will use the latest collected market evidence to generate and rank distinct product opportunities here.</p><Link href={`/projects/${id}`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Back to research →</Link></section>
         ) : (
           <>
             <OpportunityBoard projectId={id} opportunities={typedOpportunities} />
