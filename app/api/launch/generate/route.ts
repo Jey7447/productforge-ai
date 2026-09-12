@@ -53,6 +53,21 @@ export async function POST(request: Request) {
     .limit(1)
     .maybeSingle();
 
+  // The completed research run is the canonical source for launch evidence.
+  // Opportunity-level evidence is preferred when it exists, but the launch
+  // advisor must never report zero simply because opportunity_id mappings
+  // have not yet been created.
+  const { data: latestRun, error: latestRunError } = await supabase
+    .from("research_runs")
+    .select("id")
+    .eq("project_id", project.id)
+    .eq("status", "completed")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (latestRunError) return NextResponse.json({ error: `Unable to locate completed research: ${latestRunError.message}` }, { status: 500 });
+
   let rows: EvidenceRow[] = [];
   let evidenceCount = 0;
   let domains: string[] = [];
@@ -68,37 +83,44 @@ export async function POST(request: Request) {
     rows = (opportunityEvidence ?? []) as EvidenceRow[];
   }
 
-  // Opportunity evidence may not be mapped yet. In that case, load the
-  // latest completed research run directly. This is intentionally joined to
-  // the run/project so the launch advisor cannot accidentally use another
-  // project's evidence.
-  if (!rows.length) {
-    const { data: latestRun, error: latestRunError } = await supabase
-      .from("research_runs")
-      .select("id")
-      .eq("project_id", project.id)
-      .eq("status", "completed")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+  // If the selected opportunity has no direct evidence links, use the latest
+  // completed research run. Count the complete run separately from the
+  // limited rows loaded into the generation context.
+  if (!rows.length && latestRun?.id) {
+    const { data: runEvidence, error: runEvidenceError, count: runEvidenceCount } = await supabase
+      .from("research_evidence")
+      .select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score", { count: "exact" })
+      .eq("research_run_id", latestRun.id)
+      .order("relevance_score", { ascending: false, nullsFirst: false })
+      .limit(20);
+    if (runEvidenceError) return NextResponse.json({ error: `Unable to load completed research evidence: ${runEvidenceError.message}` }, { status: 500 });
+    rows = (runEvidence ?? []) as EvidenceRow[];
+    evidenceCount = runEvidenceCount ?? 0;
+  }
 
-    if (latestRunError) return NextResponse.json({ error: `Unable to locate completed research: ${latestRunError.message}` }, { status: 500 });
-
-    if (latestRun?.id) {
-      const { data: runEvidence, error: runEvidenceError, count: runEvidenceCount } = await supabase
-        .from("research_evidence")
-        .select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score", { count: "exact" })
-        .eq("research_run_id", latestRun.id)
-        .order("relevance_score", { ascending: false, nullsFirst: false })
-        .limit(20);
-      if (runEvidenceError) return NextResponse.json({ error: `Unable to load completed research evidence: ${runEvidenceError.message}` }, { status: 500 });
-      rows = (runEvidence ?? []) as EvidenceRow[];
-      evidenceCount = runEvidenceCount ?? rows.length;
-    }
+  if (!evidenceCount && latestRun?.id) {
+    const { count: exactCount, error: countError } = await supabase
+      .from("research_evidence")
+      .select("id", { count: "exact", head: true })
+      .eq("research_run_id", latestRun.id);
+    if (countError) return NextResponse.json({ error: `Unable to count research evidence: ${countError.message}` }, { status: 500 });
+    evidenceCount = exactCount ?? 0;
   }
 
   if (!evidenceCount) evidenceCount = rows.length;
   domains = Array.from(new Set(rows.map((row) => row.source_domain).filter(Boolean))) as string[];
+
+  // When we loaded a limited evidence subset, calculate domain coverage from
+  // the complete research run so the launch plan does not under-report it.
+  if (latestRun?.id) {
+    const { data: runDomains, error: domainError } = await supabase
+      .from("research_evidence")
+      .select("source_domain")
+      .eq("research_run_id", latestRun.id)
+      .not("source_domain", "is", null);
+    if (domainError) return NextResponse.json({ error: `Unable to summarize research domains: ${domainError.message}` }, { status: 500 });
+    domains = Array.from(new Set((runDomains ?? []).map((row) => row.source_domain).filter(Boolean))) as string[];
+  }
 
   const audience = clean(product.target_audience || opportunity?.target_audience, "the target audience identified in the research");
   const problem = clean(opportunity?.problem, "the validated problem");
