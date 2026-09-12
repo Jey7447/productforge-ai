@@ -28,10 +28,7 @@ const opportunitySchema = z.object({
   rationale: z.string().min(1).max(1200),
   estimatedPriceMin: z.number().min(0).max(100000),
   estimatedPriceMax: z.number().min(0).max(100000),
-  evidence: z.array(z.object({
-    sourceId: z.string(),
-    claim: z.string().min(1).max(500),
-  })).min(2).max(8),
+  evidence: z.array(z.object({ sourceId: z.string(), claim: z.string().min(1).max(500) })).min(2).max(8),
   scoreRationales: z.object({
     demand: z.string().min(1).max(500),
     problemIntensity: z.string().min(1).max(500),
@@ -43,25 +40,13 @@ const opportunitySchema = z.object({
   scores: scoreSchema,
 });
 
-const opportunitiesSchema = z.object({
-  opportunities: z.array(opportunitySchema).min(5).max(10),
-});
-
+const opportunitiesSchema = z.object({ opportunities: z.array(opportunitySchema).min(5).max(10) });
 export type GeneratedOpportunity = z.infer<typeof opportunitySchema>;
 
-function clamp(value: number) {
-  return Math.max(0, Math.min(100, Math.round(value)));
-}
+function clamp(value: number) { return Math.max(0, Math.min(100, Math.round(value))); }
 
 export function calculateOpportunityScore(scores: z.infer<typeof scoreSchema>) {
-  return clamp(
-    scores.demand * 0.25 +
-      scores.problemIntensity * 0.20 +
-      scores.competitionGap * 0.20 +
-      scores.monetization * 0.15 +
-      scores.specificity * 0.10 +
-      scores.buildability * 0.10,
-  );
+  return clamp(scores.demand * 0.25 + scores.problemIntensity * 0.20 + scores.competitionGap * 0.20 + scores.monetization * 0.15 + scores.specificity * 0.10 + scores.buildability * 0.10);
 }
 
 type EvidenceRow = {
@@ -78,129 +63,103 @@ type EvidenceRow = {
 };
 
 function compactEvidence(row: EvidenceRow) {
-  return {
-    id: row.id,
-    purpose: row.source_type,
-    domain: row.source_domain,
-    title: row.title,
-    url: row.source_url,
-    publishedAt: row.published_at,
-    relevanceScore: row.relevance_score,
-    credibilityScore: row.credibility_score,
-    excerpt: (row.content_excerpt || row.snippet || "").slice(0, MAX_EXCERPT_CHARS),
-  };
+  return { id: row.id, purpose: row.source_type, domain: row.source_domain, title: row.title, url: row.source_url, publishedAt: row.published_at, relevanceScore: row.relevance_score, credibilityScore: row.credibility_score, excerpt: (row.content_excerpt || row.snippet || "").slice(0, MAX_EXCERPT_CHARS) };
 }
 
-function confidenceForOpportunity(
-  opportunity: GeneratedOpportunity,
-  evidenceById: Map<string, EvidenceRow>,
-  evidenceQuality: ResearchSynthesis["evidenceQuality"],
-) {
-  const rows = opportunity.evidence
-    .map((item) => evidenceById.get(item.sourceId))
-    .filter((row): row is EvidenceRow => Boolean(row));
-
+function confidenceForOpportunity(opportunity: GeneratedOpportunity, evidenceById: Map<string, EvidenceRow>, evidenceQuality: ResearchSynthesis["evidenceQuality"]) {
+  const rows = opportunity.evidence.map((item) => evidenceById.get(item.sourceId)).filter((row): row is EvidenceRow => Boolean(row));
   const sourceCountScore = Math.min(100, (rows.length / 4) * 100);
   const domains = new Set(rows.map((row) => row.source_domain).filter(Boolean));
   const diversityScore = Math.min(100, (domains.size / 3) * 100);
-  const credibility = rows.length
-    ? rows.reduce((sum, row) => sum + (row.credibility_score ?? 50), 0) / rows.length
-    : 0;
-
-  return clamp(
-    evidenceQuality.overall * 0.40 +
-      sourceCountScore * 0.30 +
-      diversityScore * 0.20 +
-      credibility * 0.10,
-  );
+  const credibility = rows.length ? rows.reduce((sum, row) => sum + (row.credibility_score ?? 50), 0) / rows.length : 0;
+  return clamp(evidenceQuality.overall * 0.40 + sourceCountScore * 0.30 + diversityScore * 0.20 + credibility * 0.10);
 }
 
-function fallbackOpportunities(
-  input: ResearchInput,
-  synthesis: ResearchSynthesis,
-  evidenceRows: EvidenceRow[],
-): GeneratedOpportunity[] {
+function clean(value: string | undefined, fallback: string) {
+  const text = value?.replace(/\s+/g, " ").trim();
+  return text || fallback;
+}
+
+function claim(row: EvidenceRow) {
+  return `${row.title || row.source_domain || "Research source"}: ${(row.content_excerpt || row.snippet || "").replace(/\s+/g, " ").slice(0, 360)}`;
+}
+
+function fallbackOpportunities(input: ResearchInput, synthesis: ResearchSynthesis, evidenceRows: EvidenceRow[]): GeneratedOpportunity[] {
   const usableEvidence = evidenceRows.filter((row) => row.id);
   if (usableEvidence.length < 2) throw new Error("Evidence-only opportunity generation requires at least two evidence sources.");
 
-  const audience = input.audience?.trim() || "the target audience identified in the research";
-  const problem = input.problems?.trim() || synthesis.painPoints[0] || "a recurring problem identified in the research";
-  const interests = input.interests?.filter(Boolean) ?? [];
-  const primaryTopic = interests[0] || input.name || "the researched topic";
-  const productTypes = input.preferredProductTypes?.filter(Boolean) ?? [];
-  const type = productTypes[0] || "digital guide";
+  const audience = clean(input.audience, "the target audience identified in the research");
+  const topic = clean(input.interests?.filter(Boolean)[0], clean(input.name, "the researched topic"));
+  const fallbackProblem = clean(input.problems, synthesis.painPoints[0] || "a recurring problem identified in the research");
   const base = Math.max(35, Math.min(88, synthesis.evidenceQuality.overall));
+  const pool = [
+    ...synthesis.painPoints,
+    ...synthesis.underservedNeeds,
+    ...synthesis.competitionGaps,
+    ...synthesis.demandSignals,
+    ...synthesis.monetizationSignals,
+    ...synthesis.existingSolutions,
+  ].map((value) => value.replace(/\s+/g, " ").trim()).filter(Boolean);
 
-  const formats = [
-    ["Practical Playbook", "playbook"],
-    ["Step-by-Step Toolkit", "toolkit"],
-    ["Focused Study System", "study system"],
-    ["Template Pack", "template pack"],
-    ["Decision Guide", "decision guide"],
-    ["Practice Workbook", "workbook"],
-    ["Implementation Sprint", "implementation sprint"],
-    ["Resource Library", "resource library"],
+  const uniqueSignals = Array.from(new Set(pool));
+  const sourceSignals = usableEvidence.map(claim);
+  const angleTemplates = [
+    ["Pain-to-Workflow", "workflow system", "Turn the most recurring research-backed pain into a repeatable workflow."],
+    ["Underserved Segment", "specialist toolkit", "Serve a narrower need or audience segment identified as underserved."],
+    ["Gap-Focused Solution", "gap-focused guide", "Address a documented limitation or gap in existing solutions."],
+    ["Demand Capture", "action toolkit", "Package a repeated demand signal into a concrete action-oriented product."],
+    ["Decision Support", "decision guide", "Help the audience make a recurring decision highlighted by the research."],
+    ["Implementation System", "implementation system", "Help the audience move from knowing what to do to actually implementing it."],
+    ["Reference / Practice", "reference and practice kit", "Create a practical reference or practice resource around a repeated information need."],
+    ["Outcome Accelerator", "outcome-focused program", "Reduce friction around the most important outcome implied by the research."],
   ] as const;
 
-  return formats.map(([label, format], index) => {
-    const first = usableEvidence[index % usableEvidence.length];
-    const second = usableEvidence[(index + 1) % usableEvidence.length];
-    const sourceText = (row: EvidenceRow) => `${row.title || row.source_domain || "Research source"}: ${(row.content_excerpt || row.snippet || "").replace(/\s+/g, " ").slice(0, 280)}`;
-    const variation = index % 4;
-    const demand = clamp(base + (variation === 0 ? 6 : variation === 1 ? 2 : -2));
-    const problemIntensity = clamp(base + (variation === 1 ? 7 : variation === 2 ? 3 : -1));
-    const competitionGap = clamp(base + (variation === 2 ? 8 : variation === 3 ? 3 : -3));
-    const monetization = clamp(base - 8 + (variation === 0 ? 5 : variation === 3 ? 2 : 0));
-    const specificity = clamp(base + 3 + (index % 3) * 2);
-    const buildability = clamp(88 - index * 3);
+  return angleTemplates.map(([label, format, description], index) => {
+    const signal = uniqueSignals[index % Math.max(1, uniqueSignals.length)] || fallbackProblem;
+    const first = usableEvidence[(index * 2) % usableEvidence.length];
+    const second = usableEvidence[(index * 2 + 1) % usableEvidence.length];
+    const demand = clamp(base + [6, 2, 1, 5, 0, 3, -1, 2][index]);
+    const problemIntensity = clamp(base + [6, 8, 3, 1, 5, 4, 2, 6][index]);
+    const competitionGap = clamp(base + [1, 5, 10, 3, 6, 7, 4, 5][index]);
+    const monetization = clamp(base - 7 + [4, 1, 4, 5, 3, 2, 0, 5][index]);
+    const specificity = clamp(base + 4 + (index % 3) * 2);
+    const buildability = clamp(82 + [0, -2, -4, 1, -3, -5, -1, -6][index]);
+    const problem = signal || fallbackProblem;
+    const product = `${description} ${clean(problem, fallbackProblem)}`;
 
     return {
-      title: `${label}: ${primaryTopic}`,
-      niche: `${audience} · ${primaryTopic}`,
+      title: `${label}: ${topic}`,
+      niche: `${audience} · ${topic}`,
       targetAudience: audience,
       problem,
-      proposedProduct: `A ${format} that helps ${audience.toLowerCase()} address ${problem.toLowerCase()} through a focused, practical ${type}.`,
-      productType: type,
-      rationale: `Evidence-only hypothesis built from two collected sources. It is a testable product direction rather than a claim of profitability. Source 1: ${sourceText(first)} Source 2: ${sourceText(second)}`,
+      proposedProduct: `A ${format} for ${audience.toLowerCase()} focused on ${product.toLowerCase()}`,
+      productType: format,
+      rationale: `Evidence-only hypothesis built from collected research. This is a distinct problem/job angle, not merely a different packaging format. Supporting signals: ${claim(first)} ${claim(second)}`,
       estimatedPriceMin: 10 + index * 2,
-      estimatedPriceMax: 29 + index * 4,
+      estimatedPriceMax: 30 + index * 4,
       evidence: [
-        { sourceId: first.id, claim: sourceText(first) },
-        { sourceId: second.id, claim: sourceText(second) },
+        { sourceId: first.id, claim: claim(first) },
+        { sourceId: second.id, claim: claim(second) },
       ],
       scoreRationales: {
-        demand: `Based on the overall evidence quality (${synthesis.evidenceQuality.overall}/100) and the selected source signals; direct demand should still be validated.`,
-        problemIntensity: `The research contains problem-oriented signals, but this fallback does not infer severity beyond the supplied evidence.`,
-        competitionGap: `Potential gap is treated as a hypothesis from the evidence rather than a definitive competitive claim.`,
-        monetization: `Pricing and willingness to pay remain hypotheses unless explicit purchase or pricing evidence was collected.`,
-        specificity: `The opportunity names a concrete audience and problem from the project context.`,
-        buildability: `A focused ${format} is comparatively feasible for a small creator or team to produce and test.`,
+        demand: `Based on the research evidence quality (${synthesis.evidenceQuality.overall}/100) and the selected demand-related signal; direct demand still requires validation.`,
+        problemIntensity: `Anchored to a distinct research signal rather than a generic product-format variation.`,
+        competitionGap: `Treated as a hypothesis from documented gaps, underserved needs, or solution limitations; not a claim that competition is absent.`,
+        monetization: `Willingness to pay remains a hypothesis unless the collected evidence explicitly supports it.`,
+        specificity: `The direction identifies the project audience and a distinct job/problem angle.`,
+        buildability: `A focused ${format} can be scoped into a testable first version without requiring a large product build.`,
       },
       scores: { demand, problemIntensity, competitionGap, monetization, specificity, buildability },
     };
   });
 }
 
-async function storeOpportunities(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  projectId: string,
-  searchId: string,
-  synthesis: ResearchSynthesis,
-  evidenceRows: EvidenceRow[],
-  opportunities: GeneratedOpportunity[],
-) {
+async function storeOpportunities(supabase: Awaited<ReturnType<typeof createClient>>, projectId: string, searchId: string, synthesis: ResearchSynthesis, evidenceRows: EvidenceRow[], opportunities: GeneratedOpportunity[]) {
   const evidenceById = new Map(evidenceRows.map((row) => [row.id, row]));
   const ranked = opportunities.map((opportunity) => {
     const overallScore = calculateOpportunityScore(opportunity.scores);
     const confidenceScore = confidenceForOpportunity(opportunity, evidenceById, synthesis.evidenceQuality);
-    const evidenceSummary = {
-      sources: opportunity.evidence,
-      scoreRationales: opportunity.scoreRationales,
-      confidenceBasis: {
-        evidenceQuality: synthesis.evidenceQuality,
-        sourceCount: opportunity.evidence.length,
-      },
-    };
+    const evidenceSummary = { sources: opportunity.evidence, scoreRationales: opportunity.scoreRationales, confidenceBasis: { evidenceQuality: synthesis.evidenceQuality, sourceCount: opportunity.evidence.length } };
     return { opportunity, overallScore, confidenceScore, evidenceSummary };
   }).sort((a, b) => b.overallScore - a.overallScore);
 
@@ -208,73 +167,39 @@ async function storeOpportunities(
   for (const item of ranked) {
     const priceMin = Math.min(item.opportunity.estimatedPriceMin, item.opportunity.estimatedPriceMax);
     const priceMax = Math.max(item.opportunity.estimatedPriceMin, item.opportunity.estimatedPriceMax);
-    const { data: opportunity, error: opportunityError } = await supabase
-      .from("opportunities")
-      .insert({
-        search_id: searchId,
-        project_id: projectId,
-        title: item.opportunity.title,
-        niche: item.opportunity.niche,
-        target_audience: item.opportunity.targetAudience,
-        problem: item.opportunity.problem,
-        proposed_product: item.opportunity.proposedProduct,
-        product_type: item.opportunity.productType,
-        rationale: item.opportunity.rationale,
-        demand_score: item.opportunity.scores.demand,
-        problem_intensity_score: item.opportunity.scores.problemIntensity,
-        competition_gap_score: item.opportunity.scores.competitionGap,
-        monetization_score: item.opportunity.scores.monetization,
-        specificity_score: item.opportunity.scores.specificity,
-        buildability_score: item.opportunity.scores.buildability,
-        opportunity_score: item.overallScore,
-        estimated_price_min: priceMin,
-        estimated_price_max: priceMax,
-        confidence_score: item.confidenceScore,
-        evidence_summary: item.evidenceSummary,
-        status: "discovered",
-      })
-      .select("id")
-      .single();
-
+    const { data: opportunity, error: opportunityError } = await supabase.from("opportunities").insert({
+      search_id: searchId, project_id: projectId, title: item.opportunity.title, niche: item.opportunity.niche,
+      target_audience: item.opportunity.targetAudience, problem: item.opportunity.problem, proposed_product: item.opportunity.proposedProduct,
+      product_type: item.opportunity.productType, rationale: item.opportunity.rationale,
+      demand_score: item.opportunity.scores.demand, problem_intensity_score: item.opportunity.scores.problemIntensity,
+      competition_gap_score: item.opportunity.scores.competitionGap, monetization_score: item.opportunity.scores.monetization,
+      specificity_score: item.opportunity.scores.specificity, buildability_score: item.opportunity.scores.buildability,
+      opportunity_score: item.overallScore, estimated_price_min: priceMin, estimated_price_max: priceMax,
+      confidence_score: item.confidenceScore, evidence_summary: item.evidenceSummary, status: "discovered",
+    }).select("id").single();
     if (opportunityError || !opportunity) throw new Error(opportunityError?.message ?? "Unable to store generated opportunity");
 
     const { error: scoreError } = await supabase.from("opportunity_scores").insert({
-      opportunity_id: opportunity.id,
-      demand_score: item.opportunity.scores.demand,
-      problem_intensity_score: item.opportunity.scores.problemIntensity,
-      competition_gap_score: item.opportunity.scores.competitionGap,
-      monetization_score: item.opportunity.scores.monetization,
-      specificity_score: item.opportunity.scores.specificity,
-      buildability_score: item.opportunity.scores.buildability,
-      overall_score: item.overallScore,
-      confidence_score: item.confidenceScore,
-      scoring_version: "v1",
-      rationale: item.opportunity.rationale,
-      evidence_summary: item.evidenceSummary,
+      opportunity_id: opportunity.id, demand_score: item.opportunity.scores.demand, problem_intensity_score: item.opportunity.scores.problemIntensity,
+      competition_gap_score: item.opportunity.scores.competitionGap, monetization_score: item.opportunity.scores.monetization,
+      specificity_score: item.opportunity.scores.specificity, buildability_score: item.opportunity.scores.buildability,
+      overall_score: item.overallScore, confidence_score: item.confidenceScore, scoring_version: "v1",
+      rationale: item.opportunity.rationale, evidence_summary: item.evidenceSummary,
     });
     if (scoreError) throw new Error(`Unable to store opportunity score: ${scoreError.message}`);
-
     inserted.push({ id: opportunity.id, title: item.opportunity.title, opportunityScore: item.overallScore, confidenceScore: item.confidenceScore });
   }
   return inserted;
 }
 
-export async function generateAndStoreOpportunities(
-  projectId: string,
-  researchRunId: string,
-  searchId: string,
-  input: ResearchInput,
-  synthesis: ResearchSynthesis,
-) {
+export async function generateAndStoreOpportunities(projectId: string, researchRunId: string, searchId: string, input: ResearchInput, synthesis: ResearchSynthesis) {
   const supabase = await createClient();
-  const { data: evidence, error: evidenceError } = await supabase
-    .from("research_evidence")
+  const { data: evidence, error: evidenceError } = await supabase.from("research_evidence")
     .select("id,source_url,source_domain,source_type,title,snippet,content_excerpt,published_at,relevance_score,credibility_score")
     .eq("research_run_id", researchRunId)
     .order("credibility_score", { ascending: false, nullsFirst: false })
     .order("relevance_score", { ascending: false, nullsFirst: false })
     .limit(MAX_EVIDENCE_ITEMS);
-
   if (evidenceError) throw new Error(`Unable to load evidence for opportunity generation: ${evidenceError.message}`);
   const evidenceRows = (evidence ?? []) as EvidenceRow[];
   if (!evidenceRows.length) throw new Error("Opportunity generation requires research evidence.");
@@ -289,27 +214,29 @@ export async function generateAndStoreOpportunities(
       schema: opportunitiesSchema,
       system: `You are ProductForge's opportunity strategist.
 
-Generate digital-product opportunity hypotheses from supplied research evidence. The goal is not to invent attractive ideas; it is to translate repeated, evidence-backed problems and gaps into specific, buildable product opportunities.
+Generate digital-product opportunity hypotheses from supplied research evidence. Translate evidence-backed problems, jobs, gaps, underserved needs and demand signals into specific, buildable opportunities.
 
 Rules:
-1. Treat supplied evidence as the only factual source. Do not invent statistics, customer quotes, competitors, prices, market sizes, trends, or demand.
-2. An opportunity must be traceable to at least two supplied evidence sources. Use only valid source IDs.
-3. Prefer specific audiences and concrete problems over broad niches.
-4. Existing competition is not automatically bad. Score the competition gap based on evidence of limitations, complaints, underserved segments, or meaningful differentiation opportunities.
-5. Price fields are hypotheses, not market facts. If pricing evidence is weak, keep the range conservative and explain that it is an estimate.
-6. Score each dimension from 0-100 using only the supplied evidence and the defined rubric.
-7. Do not calculate or provide an overall score. ProductForge calculates the weighted overall score separately.
-8. Do not call anything guaranteed profitable. Use opportunity, signal, hypothesis, evidence, or potential.
-9. Produce distinct opportunities rather than eight variations of the same idea.
+1. Use supplied evidence as the only factual source. Never invent statistics, customer quotes, competitors, prices, market sizes, trends, or demand.
+2. Every opportunity must cite at least two supplied evidence sources using exact source IDs.
+3. Produce genuinely distinct opportunities. The eight outputs must differ primarily by CUSTOMER JOB / PROBLEM / UNDERSERVED NEED / COMPETITIVE GAP, not by renaming the same product as a playbook, toolkit, workbook, guide, template pack, library, etc.
+4. Do not create multiple opportunities for the same audience + problem simply by changing the format.
+5. Prefer specific audiences and concrete jobs over broad niches.
+6. Existing competition is not automatically bad. Only claim a gap when evidence supports limitations, complaints, underserved segments, or a meaningful differentiation opportunity.
+7. Price fields are hypotheses, not market facts.
+8. Score each dimension 0-100 from the supplied evidence.
+9. Do not calculate an overall score; ProductForge calculates it separately.
+10. Never call anything guaranteed profitable.
+11. If the evidence supports fewer than eight genuinely distinct opportunities, return fewer rather than manufacturing variants. Return at least five only when five distinct opportunities are actually supported.
 
 SCORING RUBRIC
-- Demand: strength and repetition of concrete demand signals in the evidence.
+- Demand: strength and repetition of concrete demand signals.
 - Problem intensity: evidence that the problem is painful, frequent, costly, urgent, or frustrating.
-- Competition gap: evidence that current solutions leave meaningful gaps for this audience/problem.
-- Monetization: evidence of willingness to pay, existing spending, paid alternatives, or a clear economic value proposition.
-- Specificity: how precisely the opportunity identifies a customer, problem, and use case.
-- Buildability: how realistically a small creator/team could produce the proposed digital product using the stated format and available information.`,
-      prompt: `Create ${OPPORTUNITY_COUNT} distinct ProductForge opportunities.
+- Competition gap: evidence that current solutions leave meaningful gaps.
+- Monetization: evidence of willingness to pay, existing spending, paid alternatives, or clear economic value.
+- Specificity: precision of customer, problem, and use case.
+- Buildability: realistic scope for a small creator/team.`,
+      prompt: `Create up to ${OPPORTUNITY_COUNT} genuinely distinct ProductForge opportunities from the research below.
 
 PROJECT CONTEXT
 Name: ${input.name}
@@ -329,15 +256,16 @@ ${JSON.stringify(synthesis, null, 2)}
 EVIDENCE PACKET
 ${JSON.stringify(evidencePacket, null, 2)}
 
-Return opportunities that are directly supported by the evidence. Each evidence item must paraphrase a concrete claim from the supplied source and use its exact source ID.`
+Before finalizing, check every pair of opportunities: if two have substantially the same audience, problem and job, merge them and replace one with a genuinely different evidence-backed angle. Product format alone is never enough to make an opportunity distinct.
+
+Every evidence item must paraphrase a concrete claim from the supplied source and use its exact source ID.`,
     });
     opportunities = object.opportunities.filter((opportunity) => opportunity.evidence.every((item) => evidenceById.has(item.sourceId)));
-    if (opportunities.length < 5) throw new Error("Opportunity generation returned too few opportunities with valid evidence references.");
+    if (opportunities.length < 5) throw new Error("Opportunity generation returned fewer than five evidence-grounded distinct opportunities.");
   } catch (error) {
     console.warn("AI opportunity generation unavailable; using evidence-only fallback.", error);
     opportunities = fallbackOpportunities(input, synthesis, evidenceRows);
   }
 
-  const inserted = await storeOpportunities(supabase, projectId, searchId, synthesis, evidenceRows, opportunities);
-  return inserted;
+  return storeOpportunities(supabase, projectId, searchId, synthesis, evidenceRows, opportunities);
 }
