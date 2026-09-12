@@ -75,7 +75,7 @@ function confidenceForOpportunity(opportunity: GeneratedOpportunity, evidenceByI
   return clamp(evidenceQuality.overall * 0.40 + sourceCountScore * 0.30 + diversityScore * 0.20 + credibility * 0.10);
 }
 
-function clean(value: string | undefined, fallback: string) {
+function clean(value: string | null | undefined, fallback: string) {
   const text = value?.replace(/\s+/g, " ").trim();
   return text || fallback;
 }
