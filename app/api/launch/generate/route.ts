@@ -54,6 +54,9 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   let rows: EvidenceRow[] = [];
+  let evidenceCount = 0;
+  let domains: string[] = [];
+
   if (opportunity?.id) {
     const { data: opportunityEvidence, error: evidenceError } = await supabase
       .from("research_evidence")
@@ -65,9 +68,10 @@ export async function POST(request: Request) {
     rows = (opportunityEvidence ?? []) as EvidenceRow[];
   }
 
-  // Evidence can legitimately be attached to the completed research run before
-  // it is mapped to each generated opportunity. Preserve that evidence instead
-  // of reporting zero sources to the launch advisor.
+  // Opportunity evidence may not be mapped yet. In that case, load the
+  // latest completed research run directly. This is intentionally joined to
+  // the run/project so the launch advisor cannot accidentally use another
+  // project's evidence.
   if (!rows.length) {
     const { data: latestRun, error: latestRunError } = await supabase
       .from("research_runs")
@@ -77,22 +81,25 @@ export async function POST(request: Request) {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
+
     if (latestRunError) return NextResponse.json({ error: `Unable to locate completed research: ${latestRunError.message}` }, { status: 500 });
 
-    if (latestRun) {
-      const { data: runEvidence, error: runEvidenceError } = await supabase
+    if (latestRun?.id) {
+      const { data: runEvidence, error: runEvidenceError, count: runEvidenceCount } = await supabase
         .from("research_evidence")
-        .select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score")
+        .select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score", { count: "exact" })
         .eq("research_run_id", latestRun.id)
         .order("relevance_score", { ascending: false, nullsFirst: false })
         .limit(20);
       if (runEvidenceError) return NextResponse.json({ error: `Unable to load completed research evidence: ${runEvidenceError.message}` }, { status: 500 });
       rows = (runEvidence ?? []) as EvidenceRow[];
+      evidenceCount = runEvidenceCount ?? rows.length;
     }
   }
 
-  const domains = Array.from(new Set(rows.map((row) => row.source_domain).filter(Boolean))) as string[];
-  const evidenceCount = rows.length;
+  if (!evidenceCount) evidenceCount = rows.length;
+  domains = Array.from(new Set(rows.map((row) => row.source_domain).filter(Boolean))) as string[];
+
   const audience = clean(product.target_audience || opportunity?.target_audience, "the target audience identified in the research");
   const problem = clean(opportunity?.problem, "the validated problem");
   const productName = clean(product.name, "the product");
