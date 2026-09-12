@@ -89,15 +89,20 @@ export async function PATCH(request: Request) {
   const update: Record<string, unknown> = {};
   for (const key of allowedFields) {
     if (!(key in fields)) continue;
-    if (key === "content") {
+
+    if (body.type === "worksheet" && key === "content") {
       if (typeof fields[key] !== "object" || fields[key] === null || Array.isArray(fields[key])) {
         return NextResponse.json({ error: "Worksheet content must be an object" }, { status: 400 });
       }
+
       const content = fields[key] as Record<string, unknown>;
       update.content = {
         purpose: cleanString(content.purpose),
         prompts: Array.isArray(content.prompts)
-          ? content.prompts.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean)
+          ? content.prompts
+              .filter((item): item is string => typeof item === "string")
+              .map((item) => item.trim())
+              .filter(Boolean)
           : [],
       };
     } else {
