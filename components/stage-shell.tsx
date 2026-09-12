@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { createClient } from "@/lib/supabase/server";
 import { StageVisual, type StageName } from "@/components/stage-visual";
+import { EvidenceExplorer } from "@/components/evidence-explorer";
 
 const stages = [
   ["Research", ""] as const,
@@ -10,6 +11,17 @@ const stages = [
   ["Build", "/build"] as const,
   ["Launch", "/launch"] as const,
 ];
+
+type EvidenceRow = {
+  id: string;
+  source_url: string;
+  source_domain: string | null;
+  source_type: string | null;
+  title: string | null;
+  snippet: string | null;
+  relevance_score: number | null;
+  credibility_score: number | null;
+};
 
 export async function StageShell({
   projectId,
@@ -26,7 +38,6 @@ export async function StageShell({
   const { data: project } = await supabase
     .from("projects")
     .select("current_stage")
-    .eq("id", projectId)
     .maybeSingle();
 
   const { data: product } = await supabase
@@ -58,6 +69,16 @@ export async function StageShell({
         .select("id", { count: "exact", head: true })
         .eq("search_id", latestRun.opportunity_search_id)
     : { count: 0 };
+
+  const { data: evidenceRows } = active === "Research" && latestRun?.id
+    ? await supabase
+        .from("research_evidence")
+        .select("id,source_url,source_domain,source_type,title,snippet,relevance_score,credibility_score")
+        .eq("research_run_id", latestRun.id)
+        .order("credibility_score", { ascending: false, nullsFirst: false })
+        .order("relevance_score", { ascending: false, nullsFirst: false })
+        .limit(12)
+    : { data: [] as EvidenceRow[] };
 
   const currentStage = Math.min(Math.max(Number(project?.current_stage ?? 1), 1), stages.length);
   const launchAvailable = Boolean(product);
@@ -120,6 +141,7 @@ export async function StageShell({
         </div>
 
         <StageVisual active={stageName} evidenceCount={evidenceCount ?? 0} opportunityCount={opportunityCount ?? 0} />
+        {active === "Research" && <EvidenceExplorer evidence={(evidenceRows ?? []) as EvidenceRow[]} />}
       </div>
 
       <div className="mx-auto max-w-[1440px] px-5 pb-16 sm:px-8 lg:px-10">{children}</div>
