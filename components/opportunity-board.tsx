@@ -59,7 +59,7 @@ function parseEvidenceSummary(value: EvidenceSummary | string | null | undefined
 
 function tokens(value: string | null | undefined) {
   const stop = new Set([
-    "the", "and", "for", "with", "from", "that", "this", "your", "their", "into", "how", "what", "are", "you", "digital", "product", "guide", "tool", "system", "step", "steps",
+    "the", "and", "for", "with", "from", "that", "this", "your", "their", "into", "how", "what", "are", "you", "digital", "product", "guide", "tool", "system", "step", "steps", "students", "student",
   ]);
   return new Set(
     (value ?? "")
@@ -71,8 +71,8 @@ function tokens(value: string | null | undefined) {
 }
 
 function similarity(a: Opportunity, b: Opportunity) {
-  const left = tokens(`${a.title} ${a.problem ?? ""} ${a.proposed_product ?? ""}`);
-  const right = tokens(`${b.title} ${b.problem ?? ""} ${b.proposed_product ?? ""}`);
+  const left = tokens(`${a.title} ${a.target_audience ?? ""} ${a.problem ?? ""} ${a.proposed_product ?? ""}`);
+  const right = tokens(`${b.title} ${b.target_audience ?? ""} ${b.problem ?? ""} ${b.proposed_product ?? ""}`);
   if (!left.size || !right.size) return 0;
   let overlap = 0;
   for (const token of left) if (right.has(token)) overlap += 1;
@@ -98,8 +98,30 @@ function weakestDimension(item: Opportunity) {
     (worst, current) => score(item[current[1]] as number | null) < worst.value
       ? { label: current[0], value: score(item[current[1]] as number | null) }
       : worst,
-    { label: "Buildability", value: 101 },
+    { label: "Signal", value: 101 },
   );
+}
+
+function evidenceDepth(count: number) {
+  if (count >= 6) return { label: "Strong", tone: "bg-[#dff77a] text-[#455000]" };
+  if (count >= 3) return { label: "Moderate", tone: "bg-[#eef5cf] text-[#59620f]" };
+  if (count >= 1) return { label: "Low", tone: "bg-[#fff1b8] text-[#6b5700]" };
+  return { label: "Thin", tone: "bg-[#f1f1ed] text-[#77776f]" };
+}
+
+function cleanText(value: string | null | undefined, fallback: string) {
+  const text = (value ?? "").replace(/\s+/g, " ").trim();
+  return text || fallback;
+}
+
+function decisionRecommendation(item: Opportunity, duplicate: boolean, evidence: number) {
+  const opportunity = score(item.opportunity_score);
+  const confidence = score(item.confidence_score);
+  if (duplicate) return { label: "Compare variants", detail: "A close alternative exists. Differentiate the audience, problem and format before selecting." };
+  if (evidence < 3 || confidence < 55) return { label: "Gather more evidence", detail: "The direction may be interesting, but the current evidence base is too thin for a high-confidence decision." };
+  if (opportunity >= 75 && confidence >= 65) return { label: "Strong candidate", detail: "This is one of the better-supported directions in the current research set. Validate the weakest signal next." };
+  if (opportunity >= 60) return { label: "Pressure-test", detail: "The signal is promising enough to test, but the score should not be treated as proof of demand." };
+  return { label: "Needs work", detail: "The current signal is not strong enough to prioritize without further refinement or evidence." };
 }
 
 export function OpportunityBoard({ projectId, opportunities: initial }: { projectId: string; opportunities: Opportunity[] }) {
@@ -109,17 +131,36 @@ export function OpportunityBoard({ projectId, opportunities: initial }: { projec
   const [analysisId, setAnalysisId] = useState<string | null>(initial[0]?.id ?? null);
 
   const duplicateMap = useMemo(() => {
-    const map = new Map<string, { index: number; title: string }[]>();
+    const map = new Map<string, { index: number; title: string; similarity: number }[]>();
     opportunities.forEach((item, index) => {
       const matches = opportunities
         .map((other, otherIndex) => ({ other, otherIndex, value: similarity(item, other) }))
         .filter(({ otherIndex, value }) => otherIndex !== index && value >= 0.58)
         .sort((a, b) => b.value - a.value)
         .slice(0, 2)
-        .map(({ other, otherIndex }) => ({ index: otherIndex + 1, title: other.title }));
+        .map(({ other, otherIndex, value }) => ({ index: otherIndex + 1, title: other.title, similarity: value }));
       if (matches.length) map.set(item.id, matches);
     });
     return map;
+  }, [opportunities]);
+
+  const clusters = useMemo(() => {
+    const groups: Opportunity[][] = [];
+    const assigned = new Set<string>();
+    opportunities.forEach((item) => {
+      if (assigned.has(item.id)) return;
+      const group = [item];
+      assigned.add(item.id);
+      opportunities.forEach((other) => {
+        if (other.id === item.id || assigned.has(other.id)) return;
+        if (similarity(item, other) >= 0.58) {
+          group.push(other);
+          assigned.add(other.id);
+        }
+      });
+      if (group.length > 1) groups.push(group);
+    });
+    return groups;
   }, [opportunities]);
 
   async function act(opportunityId: string, action: "select" | "shortlist") {
@@ -160,6 +201,11 @@ export function OpportunityBoard({ projectId, opportunities: initial }: { projec
   const weak = analysisItem ? weakestDimension(analysisItem) : null;
   const analysisEvidence = analysisItem ? evidenceCount(analysisItem) : 0;
   const parsedAnalysisEvidence = analysisItem ? parseEvidenceSummary(analysisItem.evidence_summary) : null;
+  const depth = evidenceDepth(analysisEvidence);
+  const recommendation = analysisItem ? decisionRecommendation(analysisItem, Boolean(analysisDuplicate), analysisEvidence) : null;
+  const sourceDomainCount = parsedAnalysisEvidence?.sources
+    ? new Set(parsedAnalysisEvidence.sources.map((source) => source.sourceId).filter(Boolean)).size
+    : 0;
 
   return (
     <div className="mt-10">
@@ -167,13 +213,35 @@ export function OpportunityBoard({ projectId, opportunities: initial }: { projec
         <div>
           <p className="pf-mono text-[9px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Opportunity board</p>
           <h2 className="pf-display mt-2 text-4xl font-semibold">Compare the landscape.</h2>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#73736d]">ProductForge surfaced {opportunities.length} opportunities. Shortlist promising directions, inspect the decision signals, then select one to pressure-test.</p>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-[#73736d]">ProductForge surfaced {opportunities.length} candidate directions. The board separates opportunity strength from evidence strength so you can make a better decision before validation.</p>
         </div>
-        <div className="flex gap-2 text-xs font-semibold">
+        <div className="flex flex-wrap gap-2 text-xs font-semibold">
           <span className="rounded-full border border-[#deded7] bg-white px-3 py-2">{shortlisted} shortlisted</span>
           <span className="rounded-full border border-[#deded7] bg-white px-3 py-2">{selected ? "1 selected" : "No selection"}</span>
         </div>
       </div>
+
+      {clusters.length > 0 && (
+        <div className="mt-5 rounded-[24px] border border-[#deded7] bg-[#f7f7f3] p-5">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+            <div>
+              <p className="pf-mono text-[9px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Opportunity clusters</p>
+              <h3 className="mt-2 text-lg font-semibold">Some candidates describe the same underlying bet.</h3>
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-[#73736d]">Compare these variants instead of treating every generated card as a separate market opportunity.</p>
+            </div>
+            <span className="w-fit rounded-full bg-white px-3 py-2 text-[10px] font-semibold">{clusters.length} cluster{clusters.length === 1 ? "" : "s"}</span>
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-2">
+            {clusters.map((group, index) => (
+              <button key={group.map((item) => item.id).join("-")} type="button" onClick={() => setAnalysisId(group[0].id)} className="rounded-2xl border border-[#e2e2db] bg-white p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md">
+                <div className="flex items-center justify-between gap-3"><span className="pf-mono text-[8px] uppercase tracking-[.14em] text-[#999991]">Cluster {String(index + 1).padStart(2, "0")}</span><span className="text-[9px] font-semibold text-[#73736d]">{group.length} variants</span></div>
+                <p className="mt-2 text-sm font-semibold">{cleanText(group[0].title, "Unnamed opportunity")}</p>
+                <p className="mt-2 text-[10px] leading-4 text-[#77776f]">{group.slice(1).map((item) => item.title).join(" · ")}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {message && <div className="mt-4 rounded-2xl border border-[#dfe7ad] bg-[#f5f8dc] px-4 py-3 text-xs text-[#59620f]">{message}</div>}
 
@@ -181,7 +249,7 @@ export function OpportunityBoard({ projectId, opportunities: initial }: { projec
         <div className="mt-5 rounded-[24px] bg-[#d9f06a] p-5">
           <p className="pf-mono text-[9px] font-bold uppercase tracking-[.16em] text-[#59620f]">Selected opportunity</p>
           <div className="mt-2 flex flex-col justify-between gap-4 md:flex-row md:items-center">
-            <div><h3 className="text-xl font-semibold">{selected.title}</h3><p className="mt-1 text-xs text-[#4f541f]">Score {score(selected.opportunity_score)} · Confidence {score(selected.confidence_score)}%</p></div>
+            <div><h3 className="text-xl font-semibold">{selected.title}</h3><p className="mt-1 text-xs text-[#4f541f]">Score {score(selected.opportunity_score)} · Evidence confidence {score(selected.confidence_score)}%</p></div>
             <Link href={`/projects/${projectId}/validate`} className="w-fit rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Validate selected →</Link>
           </div>
         </div>
@@ -189,30 +257,40 @@ export function OpportunityBoard({ projectId, opportunities: initial }: { projec
 
       {analysisItem && (
         <section className="mt-5 overflow-hidden rounded-[28px] border border-[#dcdcd4] bg-[#171714] text-white shadow-[0_20px_55px_rgba(21,21,19,.12)]">
-          <div className="grid lg:grid-cols-[1.15fr_.85fr]">
+          <div className="grid lg:grid-cols-[1.08fr_.92fr]">
             <div className="relative overflow-hidden p-6 sm:p-7">
               <div className="absolute -right-16 -top-20 h-48 w-48 rounded-full bg-[#d9f06a]/10 blur-3xl" />
               <div className="relative">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="pf-mono text-[9px] font-bold uppercase tracking-[.18em] text-white/40">Decision analysis · #{String(analysisIndex).padStart(2, "0")}</span>
                   {analysisItem.status === "selected" && <span className="rounded-full bg-[#d9f06a] px-2.5 py-1 text-[8px] font-bold uppercase tracking-[.12em] text-[#171714]">Selected</span>}
+                  {analysisDuplicate && <span className="rounded-full bg-white/10 px-2.5 py-1 text-[8px] font-bold uppercase tracking-[.12em] text-white/60">Variant overlap</span>}
                 </div>
                 <h3 className="pf-display mt-3 max-w-2xl text-3xl font-semibold">{analysisItem.title}</h3>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">{analysisItem.rationale || analysisItem.proposed_product || analysisItem.problem || "This direction is grounded in the collected research signals."}</p>
-                <div className="mt-6 grid gap-2 sm:grid-cols-3">
-                  <div className="rounded-2xl bg-white/[.06] p-4"><p className="pf-mono text-[8px] uppercase tracking-[.14em] text-white/35">Strongest signal</p><p className="mt-2 text-lg font-semibold text-[#d9f06a]">{strong?.value}/100</p><p className="mt-1 text-[10px] text-white/45">{strong?.label}</p></div>
-                  <div className="rounded-2xl bg-white/[.06] p-4"><p className="pf-mono text-[8px] uppercase tracking-[.14em] text-white/35">Evidence</p><p className="mt-2 text-lg font-semibold">{analysisEvidence || "—"}</p><p className="mt-1 text-[10px] text-white/45">linked source signals</p></div>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">{cleanText(analysisItem.problem, "The research identifies a focused problem worth investigating.")}</p>
+
+                <div className="mt-6 grid gap-2 sm:grid-cols-4">
+                  <div className="rounded-2xl bg-white/[.06] p-4"><p className="pf-mono text-[8px] uppercase tracking-[.14em] text-white/35">Opportunity</p><p className="mt-2 text-lg font-semibold text-[#d9f06a]">{score(analysisItem.opportunity_score)}/100</p><p className="mt-1 text-[10px] text-white/45">research estimate</p></div>
+                  <div className="rounded-2xl bg-white/[.06] p-4"><p className="pf-mono text-[8px] uppercase tracking-[.14em] text-white/35">Confidence</p><p className="mt-2 text-lg font-semibold">{score(analysisItem.confidence_score)}%</p><p className="mt-1 text-[10px] text-white/45">evidence strength</p></div>
+                  <div className="rounded-2xl bg-white/[.06] p-4"><p className="pf-mono text-[8px] uppercase tracking-[.14em] text-white/35">Evidence depth</p><p className="mt-2 text-lg font-semibold">{analysisEvidence || "—"}</p><p className="mt-1 text-[10px] text-white/45">{depth.label.toLowerCase()} source signals</p></div>
                   <div className="rounded-2xl bg-white/[.06] p-4"><p className="pf-mono text-[8px] uppercase tracking-[.14em] text-white/35">Buildability</p><p className="mt-2 text-lg font-semibold">{score(analysisItem.buildability_score)}/100</p><p className="mt-1 text-[10px] text-white/45">scope fit</p></div>
+                </div>
+
+                <div className="mt-5 rounded-2xl border border-white/10 bg-white/[.035] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="pf-mono text-[8px] uppercase tracking-[.14em] text-white/35">Decision posture</p><p className="mt-1 text-sm font-semibold">{recommendation?.label}</p></div><span className={`rounded-full px-2.5 py-1 text-[8px] font-bold uppercase tracking-[.12em] ${depth.tone}`}>{depth.label} evidence</span></div>
+                  <p className="mt-2 text-xs leading-5 text-white/55">{recommendation?.detail}</p>
                 </div>
               </div>
             </div>
+
             <div className="border-t border-white/10 bg-white/[.035] p-6 sm:p-7 lg:border-l lg:border-t-0">
               <p className="pf-mono text-[9px] font-bold uppercase tracking-[.18em] text-white/40">Decision notes</p>
-              <div className="mt-5 space-y-4">
-                <div><p className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#d9f06a]">Why it has leverage</p><p className="mt-1 text-xs leading-5 text-white/60">{strong?.label} is the strongest signal at {strong?.value}/100, giving this direction its clearest advantage in the current research set.</p></div>
-                <div><p className="text-[10px] font-semibold uppercase tracking-[.12em] text-white/45">Main risk</p><p className="mt-1 text-xs leading-5 text-white/60">{weak?.label} is the weakest dimension at {weak?.value}/100. Treat that as the first assumption to pressure-test rather than hiding it behind the overall score.</p></div>
-                <div><p className="text-[10px] font-semibold uppercase tracking-[.12em] text-white/45">Differentiation check</p><p className="mt-1 text-xs leading-5 text-white/60">{analysisDuplicate ? `This looks close to #${String(analysisDuplicate.index).padStart(2, "0")} “${analysisDuplicate.title}”. Compare the audience, problem and product format carefully before treating both as separate bets.` : "No strong near-duplicate was detected from the current title, problem and product wording."}</p></div>
-                <div><p className="text-[10px] font-semibold uppercase tracking-[.12em] text-white/45">Evidence basis</p><p className="mt-1 text-xs leading-5 text-white/60">{analysisEvidence ? `${analysisEvidence} linked source signal${analysisEvidence === 1 ? "" : "s"} support this opportunity${parsedAnalysisEvidence?.confidenceBasis?.sourceCount ? `; confidence uses ${parsedAnalysisEvidence.confidenceBasis.sourceCount} source${parsedAnalysisEvidence.confidenceBasis.sourceCount === 1 ? "" : "s"}.` : "."}` : "No opportunity-specific source count is recorded here; inspect the evidence explorer before relying on this direction."}</p></div>
+              <div className="mt-5 space-y-5">
+                <div><p className="text-[10px] font-semibold uppercase tracking-[.12em] text-[#d9f06a]">Why it has leverage</p><p className="mt-1 text-xs leading-5 text-white/60">{strong?.label} is the strongest signal at {strong?.value}/100. That is the clearest advantage in the current research set.</p></div>
+                <div><p className="text-[10px] font-semibold uppercase tracking-[.12em] text-white/45">Main risk</p><p className="mt-1 text-xs leading-5 text-white/60">{weak?.label} is the weakest dimension at {weak?.value}/100. Treat it as the first assumption to pressure-test.</p></div>
+                <div><p className="text-[10px] font-semibold uppercase tracking-[.12em] text-white/45">Differentiation check</p><p className="mt-1 text-xs leading-5 text-white/60">{analysisDuplicate ? `Close to #${String(analysisDuplicate.index).padStart(2, "0")} “${analysisDuplicate.title}” at roughly ${Math.round(analysisDuplicate.similarity * 100)}% wording overlap. Compare the audience, problem and product format before treating these as separate bets.` : "No strong near-duplicate was detected from the current audience, problem and product wording."}</p></div>
+                <div><p className="text-[10px] font-semibold uppercase tracking-[.12em] text-white/45">Evidence basis</p><p className="mt-1 text-xs leading-5 text-white/60">{analysisEvidence ? `${analysisEvidence} linked source signal${analysisEvidence === 1 ? "" : "s"}${sourceDomainCount ? ` across ${sourceDomainCount} evidence reference${sourceDomainCount === 1 ? "" : "s"}` : ""}. Confidence is a separate measure of evidence strength.` : "No opportunity-specific source count is recorded here. Inspect the evidence explorer before relying on this direction."}</p></div>
+                <div className="rounded-2xl bg-white/[.05] p-4"><p className="pf-mono text-[8px] uppercase tracking-[.14em] text-white/35">Product direction</p><p className="mt-2 text-xs leading-5 text-white/65">{cleanText(analysisItem.proposed_product, "A focused digital product direction")}</p><div className="mt-3 flex flex-wrap gap-2"><span className="rounded-full bg-white/10 px-2.5 py-1 text-[9px] text-white/55">{cleanText(analysisItem.target_audience, "Audience defined by research")}</span><span className="rounded-full bg-white/10 px-2.5 py-1 text-[9px] text-white/55">{cleanText(analysisItem.product_type, "Digital product")}</span></div></div>
               </div>
             </div>
           </div>
@@ -225,21 +303,23 @@ export function OpportunityBoard({ projectId, opportunities: initial }: { projec
           const isShortlisted = item.status === "shortlisted";
           const isAnalyzed = item.id === analysisItem?.id;
           const duplicate = duplicateMap.get(item.id)?.[0];
+          const itemEvidence = evidenceCount(item);
+          const itemDepth = evidenceDepth(itemEvidence);
           return (
             <article key={item.id} className={`rounded-[26px] border p-5 transition ${isAnalyzed ? "border-[#cfdc70] shadow-[0_12px_40px_rgba(180,210,50,.08)]" : "border-[#deded7]"} ${isSelected ? "bg-[#fbfff0]" : "bg-white hover:-translate-y-0.5 hover:shadow-lg"}`}>
               <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
                 <div className="flex min-w-0 flex-1 gap-4">
                   <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[#171714] text-xs font-bold text-[#d9f06a]">{String(index + 1).padStart(2, "0")}</div>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2"><span className="pf-mono text-[8px] uppercase tracking-[.15em] text-[#999991]">{item.niche}</span>{isSelected && <span className="rounded-full bg-[#d9f06a] px-2 py-1 text-[8px] font-bold uppercase tracking-[.12em]">Selected</span>}{isShortlisted && <span className="rounded-full bg-[#eef5cf] px-2 py-1 text-[8px] font-bold uppercase tracking-[.12em] text-[#596b00]">Shortlisted</span>}{duplicate && <span className="rounded-full bg-[#f2f2ed] px-2 py-1 text-[8px] font-bold uppercase tracking-[.12em] text-[#77776f]">Near duplicate</span>}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2"><span className="pf-mono text-[8px] uppercase tracking-[.15em] text-[#999991]">{item.niche}</span>{isSelected && <span className="rounded-full bg-[#d9f06a] px-2 py-1 text-[8px] font-bold uppercase tracking-[.12em]">Selected</span>}{isShortlisted && <span className="rounded-full bg-[#eef5cf] px-2 py-1 text-[8px] font-bold uppercase tracking-[.12em] text-[#596b00]">Shortlisted</span>}{duplicate && <span className="rounded-full bg-[#fff1b8] px-2 py-1 text-[8px] font-bold uppercase tracking-[.12em] text-[#6b5700]">Near duplicate</span>}</div>
                     <h3 className="mt-2 text-xl font-semibold">{item.title}</h3>
-                    <p className="mt-2 max-w-3xl text-sm leading-6 text-[#73736d]">{item.problem || item.proposed_product || "No problem statement recorded."}</p>
-                    <div className="mt-4 flex flex-wrap gap-2 text-[10px] text-[#696961]"><span className="rounded-full bg-[#f4f4f0] px-3 py-1.5">{item.target_audience || "Audience defined by research"}</span><span className="rounded-full bg-[#f4f4f0] px-3 py-1.5">{item.product_type || "Digital product"}</span></div>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-[#73736d]">{cleanText(item.problem, cleanText(item.proposed_product, "No focused problem statement recorded."))}</p>
+                    <div className="mt-4 flex flex-wrap items-center gap-2 text-[10px] text-[#696961]"><span className="rounded-full bg-[#f4f4f0] px-3 py-1.5">{cleanText(item.target_audience, "Audience defined by research")}</span><span className="rounded-full bg-[#f4f4f0] px-3 py-1.5">{cleanText(item.product_type, "Digital product")}</span><span className={`rounded-full px-3 py-1.5 font-semibold ${itemDepth.tone}`}>{itemDepth.label} evidence · {itemEvidence || 0}</span></div>
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-4 lg:w-[250px] lg:justify-end">
-                  <div className="text-right"><p className="pf-mono text-[8px] uppercase tracking-[.14em] text-[#999991]">Opportunity</p><p className="pf-display text-4xl font-semibold">{score(item.opportunity_score)}</p><p className="text-[10px] text-[#77776f]">{score(item.confidence_score)}% confidence</p></div>
-                  <div className="flex flex-col gap-2"><button type="button" disabled={!!busy} onClick={() => setAnalysisId(item.id)} className="rounded-full border border-[#d5d5cd] bg-white px-3 py-2 text-[10px] font-semibold disabled:opacity-50">{isAnalyzed ? "Analyzing" : "Analyze"}</button><button type="button" disabled={!!busy} onClick={() => act(item.id, "shortlist")} className="rounded-full border border-[#d5d5cd] bg-white px-3 py-2 text-[10px] font-semibold disabled:opacity-50">{isShortlisted ? "Remove" : "Shortlist"}</button><button type="button" disabled={!!busy || isSelected} onClick={() => act(item.id, "select")} className="rounded-full bg-[#171714] px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-40">{isSelected ? "Selected" : "Select"}</button></div>
+                <div className="flex shrink-0 items-center gap-4 lg:w-[260px] lg:justify-end">
+                  <div className="text-right"><p className="pf-mono text-[8px] uppercase tracking-[.14em] text-[#999991]">Opportunity</p><p className="pf-display text-4xl font-semibold">{score(item.opportunity_score)}</p><p className="text-[10px] text-[#77776f]">{score(item.confidence_score)}% evidence confidence</p></div>
+                  <div className="flex flex-col gap-2"><button type="button" disabled={!!busy} onClick={() => setAnalysisId(item.id)} className="rounded-full border border-[#d5d5cd] bg-white px-3 py-2 text-[10px] font-semibold disabled:opacity-50">{isAnalyzed ? "Viewing" : "Analyze"}</button><button type="button" disabled={!!busy} onClick={() => act(item.id, "shortlist")} className="rounded-full border border-[#d5d5cd] bg-white px-3 py-2 text-[10px] font-semibold disabled:opacity-50">{isShortlisted ? "Remove" : "Shortlist"}</button><button type="button" disabled={!!busy || isSelected} onClick={() => act(item.id, "select")} className="rounded-full bg-[#171714] px-3 py-2 text-[10px] font-semibold text-white disabled:opacity-40">{isSelected ? "Selected" : "Select"}</button></div>
                 </div>
               </div>
               <div className="mt-5 grid gap-2 border-t border-[#ecece6] pt-4 sm:grid-cols-3 lg:grid-cols-6">
