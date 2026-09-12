@@ -34,61 +34,42 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
   return (
     <StageShell projectId={id} projectName={project.name} active="Opportunity">
       <div className="pt-8">
-        <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#8a8a82]">02 · Opportunity detail</p>
-        <div className="mt-3 flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
+        <p className="pf-mono text-[10px] font-bold uppercase tracking-[.2em] text-[#8a8a82]">02 · Opportunity intelligence</p>
+        <div className="mt-4 grid gap-8 lg:grid-cols-[1fr_360px] lg:items-end">
           <div>
-            <h1 className="pf-display max-w-4xl text-5xl font-semibold leading-[.94] sm:text-6xl">
-              {opportunity?.title ?? "Find the strongest opportunity."}
-            </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-[#73736d]">
-              {opportunity?.problem ?? "ProductForge will rank the strongest product opportunities after successful research."}
-            </p>
+            <h1 className="pf-display max-w-4xl text-5xl font-semibold leading-[.91] sm:text-6xl">{opportunity?.title ?? "Find the strongest opportunity."}</h1>
+            <p className="mt-5 max-w-2xl text-sm leading-7 text-[#707069]">{opportunity?.problem ?? "ProductForge will rank the strongest product opportunities after successful research."}</p>
           </div>
-          {opportunity && (
-            <div className="rounded-[28px] bg-[#171714] p-5 text-white lg:min-w-52">
-              <p className="text-[10px] font-bold uppercase tracking-[.16em] text-white/45">Opportunity score</p>
-              <p className="mt-2 text-5xl font-semibold text-[#d9f06a]">{score}<span className="text-lg text-white/40">/100</span></p>
-              <p className="mt-2 text-xs text-white/45">{confidence}% confidence</p>
+          {opportunity && <div className="pf-glow relative overflow-hidden rounded-[30px] bg-[#171714] p-6 text-white shadow-[0_24px_60px_rgba(21,21,19,.16)]">
+            <div className="absolute -right-16 -top-20 h-40 w-40 rounded-full bg-[#d9f06a]/15 blur-3xl" />
+            <div className="relative flex items-center justify-between gap-5">
+              <div><p className="pf-mono text-[9px] font-semibold uppercase tracking-[.16em] text-white/45">Opportunity score</p><p className="pf-display mt-2 text-5xl font-semibold text-[#d9f06a]">{score}<span className="text-lg text-white/35">/100</span></p><p className="pf-mono mt-2 text-[9px] uppercase tracking-[.12em] text-white/40">{confidence}% evidence confidence</p></div>
+              <div className="relative grid h-24 w-24 place-items-center rounded-full border border-white/10"><div className="absolute inset-2 rounded-full border border-[#d9f06a]/30" style={{ background: `conic-gradient(#d9f06a ${score * 3.6}deg, rgba(255,255,255,.07) 0deg)` }} /><div className="relative grid h-[72px] w-[72px] place-items-center rounded-full bg-[#171714]"><span className="pf-mono text-[10px] text-white/70">SIGNAL</span></div></div>
             </div>
-          )}
+          </div>}
         </div>
 
         {!opportunity ? (
-          <section className="mt-8 rounded-[30px] border border-[#deded7] bg-white p-8">
-            <p className="text-lg font-semibold">No opportunity has been generated yet.</p>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#73736d]">
-              Complete the research stage first. ProductForge will use collected market evidence to generate and rank distinct product opportunities here.
-            </p>
-            <Link href={`/projects/${id}`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">
-              Back to research →
-            </Link>
-          </section>
+          <section className="mt-8 rounded-[30px] border border-[#deded7] bg-white p-8"><p className="text-lg font-semibold">No opportunity has been generated yet.</p><p className="mt-2 max-w-2xl text-sm leading-6 text-[#707069]">Complete the research stage first. ProductForge will use collected market evidence to generate and rank distinct product opportunities here.</p><Link href={`/projects/${id}`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Back to research →</Link></section>
         ) : (
           <>
             <div className="mt-8 grid gap-4 lg:grid-cols-[1.15fr_.85fr]">
-              <section className="rounded-[30px] border border-[#deded7] bg-white p-7">
-                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">The hypothesis</p>
-                <h2 className="mt-2 text-2xl font-semibold">What could be built</h2>
+              <section className="pf-card pf-card-hover rounded-[30px] p-7">
+                <div className="flex items-center justify-between"><p className="pf-mono text-[9px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">The hypothesis</p><span className="pf-mono rounded-full bg-[#eef5cf] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[.12em] text-[#596b00]">Rank 01</span></div>
+                <h2 className="pf-display mt-3 text-3xl font-semibold">What could be built</h2>
                 <p className="mt-5 text-sm leading-7 text-[#5f5f58]">{opportunity.proposed_product ?? "The research engine did not record a product concept."}</p>
-                <div className="mt-7 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-2xl bg-[#f5f5f2] p-4"><p className="text-[10px] uppercase tracking-wider text-[#999991]">Audience</p><p className="mt-2 text-sm font-semibold">{opportunity.target_audience ?? "Defined from research"}</p></div>
-                  <div className="rounded-2xl bg-[#f5f5f2] p-4"><p className="text-[10px] uppercase tracking-wider text-[#999991]">Product type</p><p className="mt-2 text-sm font-semibold">{opportunity.product_type ?? "Digital product"}</p></div>
-                </div>
+                <div className="mt-7 grid gap-3 sm:grid-cols-2"><div className="rounded-2xl bg-[#f4f4f0] p-4"><p className="pf-mono text-[9px] uppercase tracking-[.12em] text-[#999991]">Audience</p><p className="mt-2 text-sm font-semibold">{opportunity.target_audience ?? "Defined from research"}</p></div><div className="rounded-2xl bg-[#f4f4f0] p-4"><p className="pf-mono text-[9px] uppercase tracking-[.12em] text-[#999991]">Product type</p><p className="mt-2 text-sm font-semibold">{opportunity.product_type ?? "Digital product"}</p></div></div>
               </section>
-              <section className="rounded-[30px] border border-[#deded7] bg-[#ecece6] p-7">
-                <p className="text-[10px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Score breakdown</p>
-                <div className="mt-5 space-y-4">
-                  {metrics.map(([label, value]) => {
-                    const numeric = Math.round(Number(value ?? 0));
-                    return <div key={label}><div className="flex justify-between text-xs"><span className="text-[#73736d]">{label}</span><b>{numeric}</b></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-[#171714]" style={{ width: `${numeric}%` }} /></div></div>;
-                  })}
-                </div>
+              <section className="pf-card pf-glow rounded-[30px] bg-[#ecece6] p-7">
+                <p className="pf-mono text-[9px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Signal profile</p>
+                <div className="mt-5 space-y-4">{metrics.map(([label, value], index) => { const numeric = Math.round(Number(value ?? 0)); return <div key={label}><div className="flex items-end justify-between"><span className="text-xs text-[#73736d]">{label}</span><span className="pf-mono text-[10px] font-semibold">{String(numeric).padStart(2, "0")}</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-white"><div className="h-full rounded-full bg-[#171714] transition-all" style={{ width: `${numeric}%`, animationDelay: `${index * 80}ms` }} /></div></div>; })}</div>
               </section>
             </div>
-            <div className="mt-5 flex flex-wrap justify-end gap-3">
-              <Link href={`/projects/${id}`} className="rounded-full border border-[#d5d5cd] bg-white px-5 py-3 text-sm font-semibold">Back to research</Link>
-              <Link href={`/projects/${id}/validate`} className="rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Validate this opportunity →</Link>
-            </div>
+            <section className="pf-card mt-4 overflow-hidden rounded-[30px] p-7">
+              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="pf-mono text-[9px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Decision surface</p><h2 className="pf-display mt-2 text-3xl font-semibold">Six signals. One opportunity.</h2></div><p className="max-w-md text-xs leading-5 text-[#77776f]">The score is a research-based estimate, not a promise. Confidence describes the strength of the evidence behind the estimate.</p></div>
+              <div className="mt-7 grid gap-2 md:grid-cols-6">{metrics.map(([label, value], index) => { const numeric = Math.round(Number(value ?? 0)); return <div key={label} className="rounded-2xl border border-[#e4e4dd] bg-[#f7f7f3] p-4"><span className="pf-mono text-[8px] text-[#aaa9a1]">0{index + 1}</span><div className="mt-8 text-2xl font-semibold">{numeric}</div><p className="mt-1 text-[10px] leading-4 text-[#73736d]">{label}</p></div>; })}</div>
+            </section>
+            <div className="mt-5 flex flex-wrap justify-end gap-3"><Link href={`/projects/${id}`} className="rounded-full border border-[#d5d5cd] bg-white px-5 py-3 text-sm font-semibold">Back to research</Link><Link href={`/projects/${id}/validate`} className="rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:shadow-lg">Validate this opportunity →</Link></div>
           </>
         )}
       </div>
