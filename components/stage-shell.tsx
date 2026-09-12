@@ -62,6 +62,10 @@ export async function StageShell({
   const currentStage = Math.min(Math.max(Number(project?.current_stage ?? 1), 1), stages.length);
   const launchAvailable = Boolean(product);
   const stageName = stages.some(([label]) => label === active) ? active as StageName : "Research";
+  const activeStageIndex = Math.max(stages.findIndex(([label]) => label === stageName), 0);
+  const activeStageNumber = activeStageIndex + 1;
+  const activeIsCurrent = activeStageNumber === currentStage;
+  const activeIsCompleted = activeStageNumber < currentStage;
 
   return (
     <main className="pf-shell text-[#151513]">
@@ -107,9 +111,12 @@ export async function StageShell({
 
         <div className="mt-3 flex items-center gap-2 text-[10px] font-medium text-[#96968e]">
           <span className="pf-pulse h-1.5 w-1.5 rounded-full bg-[#c9e83f]" />
-          <span className="pf-mono">STAGE {String(currentStage).padStart(2, "0")} / {String(stages.length).padStart(2, "0")}</span>
+          <span className="pf-mono">STAGE {String(activeStageNumber).padStart(2, "0")} / {String(stages.length).padStart(2, "0")}</span>
           <span>·</span>
-          <span>{stages[currentStage - 1][0]} in progress</span>
+          <span>
+            {activeIsCurrent ? `${stages[activeStageIndex][0]} in progress` : activeIsCompleted ? `${stages[activeStageIndex][0]} complete` : `${stages[activeStageIndex][0]} available`}
+          </span>
+          {!activeIsCurrent && <span className="ml-1 rounded-full bg-white px-2 py-0.5 text-[9px] font-semibold text-[#73736d]">Project stage {String(currentStage).padStart(2, "0")}</span>}
         </div>
 
         <StageVisual active={stageName} evidenceCount={evidenceCount ?? 0} opportunityCount={opportunityCount ?? 0} />
