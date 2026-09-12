@@ -28,7 +28,9 @@ const stageData = {
   },
 } as const;
 
-export function StageVisual({ active }: { active: keyof typeof stageData }) {
+export type StageName = keyof typeof stageData;
+
+export function StageVisual({ active }: { active: StageName }) {
   const data = stageData[active];
 
   return (
