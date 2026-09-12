@@ -53,15 +53,44 @@ export async function POST(request: Request) {
     .limit(1)
     .maybeSingle();
 
-  const { data: evidence, error: evidenceError } = await supabase
-    .from("research_evidence")
-    .select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score")
-    .eq("opportunity_id", opportunity?.id ?? "00000000-0000-0000-0000-000000000000")
-    .order("relevance_score", { ascending: false, nullsFirst: false })
-    .limit(20);
-  if (evidenceError) return NextResponse.json({ error: `Unable to load launch evidence: ${evidenceError.message}` }, { status: 500 });
+  let rows: EvidenceRow[] = [];
+  if (opportunity?.id) {
+    const { data: opportunityEvidence, error: evidenceError } = await supabase
+      .from("research_evidence")
+      .select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score")
+      .eq("opportunity_id", opportunity.id)
+      .order("relevance_score", { ascending: false, nullsFirst: false })
+      .limit(20);
+    if (evidenceError) return NextResponse.json({ error: `Unable to load launch evidence: ${evidenceError.message}` }, { status: 500 });
+    rows = (opportunityEvidence ?? []) as EvidenceRow[];
+  }
 
-  const rows = (evidence ?? []) as EvidenceRow[];
+  // Evidence can legitimately be attached to the completed research run before
+  // it is mapped to each generated opportunity. Preserve that evidence instead
+  // of reporting zero sources to the launch advisor.
+  if (!rows.length) {
+    const { data: latestRun, error: latestRunError } = await supabase
+      .from("research_runs")
+      .select("id")
+      .eq("project_id", project.id)
+      .eq("status", "completed")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestRunError) return NextResponse.json({ error: `Unable to locate completed research: ${latestRunError.message}` }, { status: 500 });
+
+    if (latestRun) {
+      const { data: runEvidence, error: runEvidenceError } = await supabase
+        .from("research_evidence")
+        .select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score")
+        .eq("research_run_id", latestRun.id)
+        .order("relevance_score", { ascending: false, nullsFirst: false })
+        .limit(20);
+      if (runEvidenceError) return NextResponse.json({ error: `Unable to load completed research evidence: ${runEvidenceError.message}` }, { status: 500 });
+      rows = (runEvidence ?? []) as EvidenceRow[];
+    }
+  }
+
   const domains = Array.from(new Set(rows.map((row) => row.source_domain).filter(Boolean))) as string[];
   const evidenceCount = rows.length;
   const audience = clean(product.target_audience || opportunity?.target_audience, "the target audience identified in the research");
@@ -77,7 +106,7 @@ export async function POST(request: Request) {
       sourceDomains: domains,
       note: evidenceCount
         ? `Launch recommendations are grounded in ${evidenceCount} research evidence item${evidenceCount === 1 ? "" : "s"}${domains.length ? ` across ${domains.length} source domain${domains.length === 1 ? "" : "s"}` : ""}.`
-        : "No opportunity-specific evidence was available, so this plan should be treated as a starting hypothesis.",
+        : "No completed research evidence was available, so this plan should be treated as a starting hypothesis.",
     },
     audience: {
       primary: audience,
@@ -90,21 +119,9 @@ export async function POST(request: Request) {
       proofRule: "Use real user outcomes, demonstrations, testimonials, or research evidence as proof. Do not invent testimonials, statistics, urgency, or guarantees.",
     },
     channels: [
-      {
-        name: "Problem-led educational content",
-        why: "Start where the audience already experiences the problem. Teach one small part of the method, then invite the reader to use the full product.",
-        firstAction: `Create three short pieces explaining different angles of ${problem.toLowerCase()} and end each with one practical action from the product.`,
-      },
-      {
-        name: "Community conversations",
-        why: "Use relevant communities as listening and feedback environments rather than dropping promotional links.",
-        firstAction: `Identify communities where ${audience} already discusses the validated problem. Answer questions with useful guidance and record recurring objections or language.`,
-      },
-      {
-        name: "Direct audience outreach",
-        why: "A first launch benefits from direct learning before scaling acquisition.",
-        firstAction: `Invite a small, relevant group of people who fit the audience to review the offer or try the product, then ask what made them interested, hesitant, or confused.`,
-      },
+      { name: "Problem-led educational content", why: "Start where the audience already experiences the problem. Teach one small part of the method, then invite the reader to use the full product.", firstAction: `Create three short pieces explaining different angles of ${problem.toLowerCase()} and end each with one practical action from the product.` },
+      { name: "Community conversations", why: "Use relevant communities as listening and feedback environments rather than dropping promotional links.", firstAction: `Identify communities where ${audience} already discusses the validated problem. Answer questions with useful guidance and record recurring objections or language.` },
+      { name: "Direct audience outreach", why: "A first launch benefits from direct learning before scaling acquisition.", firstAction: `Invite a small, relevant group of people who fit the audience to review the offer or try the product, then ask what made them interested, hesitant, or confused.` },
     ],
     pricing: {
       hypothesis: minPrice != null ? `${minPrice}${maxPrice != null ? ` – ${maxPrice}` : ""}` : "Test a price after a small buyer-response experiment.",
@@ -114,13 +131,7 @@ export async function POST(request: Request) {
       coreOffer: productName,
       format: productFormat,
       promise: clean(product.promise, `Help ${audience} make practical progress on the validated problem.`),
-      assets: [
-        "A focused sales page with the problem, outcome, method, scope, and proof",
-        "A short product preview or sample lesson",
-        "Three problem-led educational posts",
-        "A simple feedback form or interview script",
-        "A clear call to action with the tested price hypothesis",
-      ],
+      assets: ["A focused sales page with the problem, outcome, method, scope, and proof", "A short product preview or sample lesson", "Three problem-led educational posts", "A simple feedback form or interview script", "A clear call to action with the tested price hypothesis"],
     },
     checklist: [
       { item: "Clarify the one-sentence offer", done: false },
@@ -139,44 +150,19 @@ export async function POST(request: Request) {
       { days: "11–12", focus: "Feedback", action: "Collect objections, questions, completion friction, and evidence of useful outcomes." },
       { days: "13–14", focus: "Improve", action: "Update the offer and product based on observed evidence, then decide whether to repeat, refine, or change channel." },
     ],
-    metrics: [
-      "Qualified people reached",
-      "Sales-page visits",
-      "Offer-to-purchase conversion",
-      "Common objections",
-      "Product completion or usage",
-      "Observed user outcomes",
-      "Repeat interest or referrals",
-    ],
+    metrics: ["Qualified people reached", "Sales-page visits", "Offer-to-purchase conversion", "Common objections", "Product completion or usage", "Observed user outcomes", "Repeat interest or referrals"],
     nextLoop: "Launch → observe real response → capture evidence → improve the offer/product → repeat.",
   };
 
-  const { data: existing } = await supabase
-    .from("launch_plans")
-    .select("id")
-    .eq("project_id", project.id)
-    .maybeSingle();
-
-  const payload = {
-    project_id: project.id,
-    product_id: product.id,
-    opportunity_id: opportunity?.id ?? null,
-    status: "ready",
-    plan,
-  };
-
+  const { data: existing } = await supabase.from("launch_plans").select("id").eq("project_id", project.id).maybeSingle();
+  const payload = { project_id: project.id, product_id: product.id, opportunity_id: opportunity?.id ?? null, status: "ready", plan };
   const result = existing
     ? await supabase.from("launch_plans").update(payload).eq("id", existing.id).select("id,plan,status").single()
     : await supabase.from("launch_plans").insert(payload).select("id,plan,status").single();
 
   if (result.error || !result.data) return NextResponse.json({ error: `Unable to save launch plan: ${result.error?.message ?? "Unknown error"}` }, { status: 500 });
 
-  await supabase
-    .from("projects")
-    .update({ current_stage: 5 })
-    .eq("id", project.id)
-    .eq("user_id", user.id);
-
+  await supabase.from("projects").update({ current_stage: 5 }).eq("id", project.id).eq("user_id", user.id);
   return NextResponse.json({ created: !existing, ...result.data });
 }
 
