@@ -4,6 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { StageShell } from "@/components/stage-shell";
 import { OpportunityEvidence } from "@/components/opportunity-evidence";
 
+type EvidenceSummary = {
+  sources?: Array<{ sourceId?: string; claim?: string }>;
+  scoreRationales?: Record<string, string>;
+  confidenceBasis?: { sourceCount?: number };
+};
+
 type Opportunity = {
   id: string;
   title: string;
@@ -23,11 +29,7 @@ type Opportunity = {
   buildability_score: number | null;
   estimated_price_min: number | null;
   estimated_price_max: number | null;
-  evidence_summary: {
-    sources?: Array<{ sourceId?: string; claim?: string }>;
-    scoreRationales?: Record<string, string>;
-    confidenceBasis?: { sourceCount?: number };
-  } | null;
+  evidence_summary: EvidenceSummary | string | null;
 };
 
 type Evidence = {
@@ -40,6 +42,19 @@ type Evidence = {
   relevance_score: number | null;
   credibility_score: number | null;
 };
+
+function parseEvidenceSummary(value: EvidenceSummary | string | null | undefined): EvidenceSummary | null {
+  if (!value) return null;
+  if (typeof value !== "string") return value;
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as EvidenceSummary;
+  } catch {
+    return null;
+  }
+}
 
 export default async function OpportunityPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -59,10 +74,11 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
     .maybeSingle();
 
   const typedOpportunity = opportunity as Opportunity | null;
+  const evidenceSummary = parseEvidenceSummary(typedOpportunity?.evidence_summary);
   let evidence: Evidence[] = [];
 
   if (typedOpportunity) {
-    const sourceIds = typedOpportunity.evidence_summary?.sources?.map((source) => source.sourceId).filter((sourceId): sourceId is string => Boolean(sourceId)) ?? [];
+    const sourceIds = evidenceSummary?.sources?.map((source) => source.sourceId).filter((sourceId): sourceId is string => Boolean(sourceId)) ?? [];
 
     if (sourceIds.length) {
       const { data: linkedRows } = await supabase
@@ -141,7 +157,7 @@ export default async function OpportunityPage({ params }: { params: Promise<{ id
               </section>
             </div>
 
-            <OpportunityEvidence evidence={evidence} summary={typedOpportunity.evidence_summary} />
+            <OpportunityEvidence evidence={evidence} summary={evidenceSummary} />
 
             <section className="pf-card mt-4 overflow-hidden rounded-[30px] p-7">
               <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div><p className="pf-mono text-[9px] font-bold uppercase tracking-[.18em] text-[#8a8a82]">Decision surface</p><h2 className="pf-display mt-2 text-3xl font-semibold">Six signals. One opportunity.</h2></div><p className="max-w-md text-xs leading-5 text-[#77776f]">The score is a research-based estimate, not a promise. Confidence describes the strength of the evidence behind the estimate.</p></div>
