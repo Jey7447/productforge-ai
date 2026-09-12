@@ -128,7 +128,8 @@ export function OpportunityBoard({ projectId, opportunities: initial }: { projec
   const [opportunities, setOpportunities] = useState(initial);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState("");
-  const [analysisId, setAnalysisId] = useState<string | null>(initial[0]?.id ?? null);
+  const initialSelected = initial.find((item) => item.status === "selected");
+  const [analysisId, setAnalysisId] = useState<string | null>(initialSelected?.id ?? initial[0]?.id ?? null);
 
   const duplicateMap = useMemo(() => {
     const map = new Map<string, { index: number; title: string; similarity: number }[]>();
