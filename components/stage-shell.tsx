@@ -28,7 +28,15 @@ export async function StageShell({
     .eq("id", projectId)
     .maybeSingle();
 
+  const { data: product } = await supabase
+    .from("products")
+    .select("id")
+    .eq("project_id", projectId)
+    .limit(1)
+    .maybeSingle();
+
   const currentStage = Math.min(Math.max(Number(project?.current_stage ?? 1), 1), stages.length);
+  const launchAvailable = Boolean(product);
 
   return (
     <main className="min-h-screen bg-[#f5f5f2] text-[#171714]">
@@ -39,12 +47,7 @@ export async function StageShell({
             <span className="hidden text-[#c6c6be] sm:block">/</span>
             <span className="hidden max-w-48 truncate text-sm font-medium sm:block">{projectName}</span>
           </div>
-          <Link
-            href={`/projects/${projectId}`}
-            className="rounded-full border border-[#d5d5cd] bg-white px-4 py-2 text-xs font-semibold transition hover:border-[#bdbdb4]"
-          >
-            Research workspace ↗
-          </Link>
+          <Link href={`/projects/${projectId}`} className="rounded-full border border-[#d5d5cd] bg-white px-4 py-2 text-xs font-semibold transition hover:border-[#bdbdb4]">Research workspace ↗</Link>
         </div>
       </header>
 
@@ -54,17 +57,13 @@ export async function StageShell({
             const stageNumber = index + 1;
             const isActive = active === label;
             const isCompleted = stageNumber < currentStage;
-            const isLocked = stageNumber > currentStage;
+            const isLaunchUnlocked = stageNumber === 5 && launchAvailable;
+            const isLocked = stageNumber > currentStage && !isLaunchUnlocked;
             const number = String(stageNumber).padStart(2, "0");
 
             if (isLocked) {
               return (
-                <span
-                  key={label}
-                  aria-disabled="true"
-                  title={`Complete stage ${currentStage} before opening ${label}.`}
-                  className="inline-flex cursor-not-allowed items-center gap-1.5 whitespace-nowrap rounded-full border border-[#e2e2db] bg-[#eeeee9] px-4 py-2 text-xs font-semibold text-[#aaa9a1]"
-                >
+                <span key={label} aria-disabled="true" title={`Complete stage ${currentStage} before opening ${label}.`} className="inline-flex cursor-not-allowed items-center gap-1.5 whitespace-nowrap rounded-full border border-[#e2e2db] bg-[#eeeee9] px-4 py-2 text-xs font-semibold text-[#aaa9a1]">
                   <span>{number} · {label}</span>
                   <span aria-hidden="true" className="text-[10px]">🔒</span>
                 </span>
@@ -72,16 +71,7 @@ export async function StageShell({
             }
 
             return (
-              <Link
-                key={label}
-                href={`/projects/${projectId}${suffix}`}
-                aria-current={isActive ? "step" : undefined}
-                className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition ${
-                  isActive
-                    ? "bg-[#171714] text-white"
-                    : "border border-[#d8d8d0] bg-white text-[#73736d] hover:border-[#bdbdb4] hover:text-[#171714]"
-                }`}
-              >
+              <Link key={label} href={`/projects/${projectId}${suffix}`} aria-current={isActive ? "step" : undefined} className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2 text-xs font-semibold transition ${isActive ? "bg-[#171714] text-white" : "border border-[#d8d8d0] bg-white text-[#73736d] hover:border-[#bdbdb4] hover:text-[#171714]"}`}>
                 <span>{number} · {label}</span>
                 {isCompleted && !isActive && <span aria-hidden="true" className="text-[10px]">✓</span>}
               </Link>
