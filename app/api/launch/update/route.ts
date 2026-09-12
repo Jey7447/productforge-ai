@@ -14,6 +14,19 @@ type LaunchLearning = {
   nextAction?: string;
 };
 
+const emptyLaunchLearning: LaunchLearning = {
+  qualifiedReached: "",
+  salesPageVisits: "",
+  interested: "",
+  purchases: "",
+  objections: "",
+  positiveSignals: "",
+  userOutcomes: "",
+  learning: "",
+  decision: "",
+  nextAction: "",
+};
+
 export async function PATCH(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -23,11 +36,12 @@ export async function PATCH(request: Request) {
     projectId?: string;
     checklist?: Array<{ item?: string; done?: boolean }>;
     launchLearning?: LaunchLearning;
+    resetLaunchLearning?: boolean;
   } | null;
 
   if (!body?.projectId) return NextResponse.json({ error: "projectId is required" }, { status: 400 });
-  if (!Array.isArray(body.checklist) && !body.launchLearning) {
-    return NextResponse.json({ error: "checklist or launchLearning is required" }, { status: 400 });
+  if (!Array.isArray(body.checklist) && !body.launchLearning && !body.resetLaunchLearning) {
+    return NextResponse.json({ error: "checklist, launchLearning, or resetLaunchLearning is required" }, { status: 400 });
   }
 
   const { data: project } = await supabase
@@ -50,6 +64,11 @@ export async function PATCH(request: Request) {
 
   const currentPlan = (launchPlan.plan ?? {}) as Record<string, unknown>;
   const updatedPlan: Record<string, unknown> = { ...currentPlan };
+
+  if (body.resetLaunchLearning) {
+    updatedPlan.launchLearning = emptyLaunchLearning;
+    delete updatedPlan.launchDiagnosis;
+  }
 
   if (Array.isArray(body.checklist)) {
     const checklist = body.checklist
