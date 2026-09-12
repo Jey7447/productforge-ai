@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Brand } from "@/components/brand";
 import { createClient } from "@/lib/supabase/server";
-import { StageVisual } from "@/components/stage-visual";
+import { StageVisual, type StageName } from "@/components/stage-visual";
 
 const stages = [
   ["Research", ""] as const,
@@ -38,6 +38,7 @@ export async function StageShell({
 
   const currentStage = Math.min(Math.max(Number(project?.current_stage ?? 1), 1), stages.length);
   const launchAvailable = Boolean(product);
+  const stageName = stages.some(([label]) => label === active) ? active as StageName : "Research";
 
   return (
     <main className="pf-shell text-[#151513]">
@@ -88,7 +89,7 @@ export async function StageShell({
           <span>{stages[currentStage - 1][0]} in progress</span>
         </div>
 
-        {stages.some(([label]) => label === active) && <StageVisual active={active as keyof typeof import("@/components/stage-visual")} />}
+        <StageVisual active={stageName} />
       </div>
 
       <div className="mx-auto max-w-[1440px] px-5 pb-16 sm:px-8 lg:px-10">{children}</div>
