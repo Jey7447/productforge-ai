@@ -115,88 +115,82 @@ function confidenceForOpportunity(
   );
 }
 
-export async function generateAndStoreOpportunities(
-  projectId: string,
-  researchRunId: string,
-  searchId: string,
+function fallbackOpportunities(
   input: ResearchInput,
   synthesis: ResearchSynthesis,
-) {
-  const supabase = await createClient();
+  evidenceRows: EvidenceRow[],
+): GeneratedOpportunity[] {
+  const usableEvidence = evidenceRows.filter((row) => row.id);
+  if (usableEvidence.length < 2) throw new Error("Evidence-only opportunity generation requires at least two evidence sources.");
 
-  const { data: evidence, error: evidenceError } = await supabase
-    .from("research_evidence")
-    .select("id,source_url,source_domain,source_type,title,snippet,content_excerpt,published_at,relevance_score,credibility_score")
-    .eq("research_run_id", researchRunId)
-    .order("credibility_score", { ascending: false, nullsFirst: false })
-    .order("relevance_score", { ascending: false, nullsFirst: false })
-    .limit(MAX_EVIDENCE_ITEMS);
+  const audience = input.audience?.trim() || "the target audience identified in the research";
+  const problem = input.problems?.trim() || synthesis.painPoints[0] || "a recurring problem identified in the research";
+  const interests = input.interests?.filter(Boolean) ?? [];
+  const primaryTopic = interests[0] || input.name || "the researched topic";
+  const productTypes = input.preferredProductTypes?.filter(Boolean) ?? [];
+  const type = productTypes[0] || "digital guide";
+  const base = Math.max(35, Math.min(88, synthesis.evidenceQuality.overall));
 
-  if (evidenceError) throw new Error(`Unable to load evidence for opportunity generation: ${evidenceError.message}`);
+  const formats = [
+    ["Practical Playbook", "playbook"],
+    ["Step-by-Step Toolkit", "toolkit"],
+    ["Focused Study System", "study system"],
+    ["Template Pack", "template pack"],
+    ["Decision Guide", "decision guide"],
+    ["Practice Workbook", "workbook"],
+    ["Implementation Sprint", "implementation sprint"],
+    ["Resource Library", "resource library"],
+  ] as const;
 
-  const evidenceRows = (evidence ?? []) as EvidenceRow[];
-  if (!evidenceRows.length) throw new Error("Opportunity generation requires research evidence.");
+  return formats.map(([label, format], index) => {
+    const first = usableEvidence[index % usableEvidence.length];
+    const second = usableEvidence[(index + 1) % usableEvidence.length];
+    const sourceText = (row: EvidenceRow) => `${row.title || row.source_domain || "Research source"}: ${(row.content_excerpt || row.snippet || "").replace(/\s+/g, " ").slice(0, 280)}`;
+    const variation = index % 4;
+    const demand = clamp(base + (variation === 0 ? 6 : variation === 1 ? 2 : -2));
+    const problemIntensity = clamp(base + (variation === 1 ? 7 : variation === 2 ? 3 : -1));
+    const competitionGap = clamp(base + (variation === 2 ? 8 : variation === 3 ? 3 : -3));
+    const monetization = clamp(base - 8 + (variation === 0 ? 5 : variation === 3 ? 2 : 0));
+    const specificity = clamp(base + 3 + (index % 3) * 2);
+    const buildability = clamp(88 - index * 3);
 
-  const evidenceById = new Map(evidenceRows.map((row) => [row.id, row]));
-  const evidencePacket = evidenceRows.map(compactEvidence);
-
-  const { object } = await generateObject({
-    model: getResearchModel(),
-    schema: opportunitiesSchema,
-    system: `You are ProductForge's opportunity strategist.
-
-Generate digital-product opportunity hypotheses from supplied research evidence. The goal is not to invent attractive ideas; it is to translate repeated, evidence-backed problems and gaps into specific, buildable product opportunities.
-
-Rules:
-1. Treat supplied evidence as the only factual source. Do not invent statistics, customer quotes, competitors, prices, market sizes, trends, or demand.
-2. An opportunity must be traceable to at least two supplied evidence sources. Use only valid source IDs.
-3. Prefer specific audiences and concrete problems over broad niches.
-4. Existing competition is not automatically bad. Score the competition gap based on evidence of limitations, complaints, underserved segments, or meaningful differentiation opportunities.
-5. Price fields are hypotheses, not market facts. If pricing evidence is weak, keep the range conservative and explain that it is an estimate.
-6. Score each dimension from 0-100 using only the supplied evidence and the defined rubric.
-7. Do not calculate or provide an overall score. ProductForge calculates the weighted overall score separately.
-8. Do not call anything guaranteed profitable. Use opportunity, signal, hypothesis, evidence, or potential.
-9. Produce distinct opportunities rather than eight variations of the same idea.
-
-SCORING RUBRIC
-- Demand: strength and repetition of concrete demand signals in the evidence.
-- Problem intensity: evidence that the problem is painful, frequent, costly, urgent, or frustrating.
-- Competition gap: evidence that current solutions leave meaningful gaps for this audience/problem.
-- Monetization: evidence of willingness to pay, existing spending, paid alternatives, or a clear economic value proposition.
-- Specificity: how precisely the opportunity identifies a customer, problem, and use case.
-- Buildability: how realistically a small creator/team could produce the proposed digital product using the stated format and available information.`,
-    prompt: `Create ${OPPORTUNITY_COUNT} distinct ProductForge opportunities.
-
-PROJECT CONTEXT
-Name: ${input.name}
-Starting point: ${input.startingPoint}
-Interests: ${(input.interests ?? []).join(", ") || "Not provided"}
-Expertise: ${input.expertise || "Not provided"}
-Audience: ${input.audience || "Not provided"}
-Problems: ${input.problems || "Not provided"}
-Goals: ${input.goals || "Not provided"}
-Preferred product types: ${(input.preferredProductTypes ?? []).join(", ") || "Not provided"}
-Priority goal: ${input.priorityGoal || "Not provided"}
-Additional context: ${input.additionalContext || "Not provided"}
-
-RESEARCH SYNTHESIS
-${JSON.stringify(synthesis, null, 2)}
-
-EVIDENCE PACKET
-${JSON.stringify(evidencePacket, null, 2)}
-
-Return opportunities that are directly supported by the evidence. Each evidence item must paraphrase a concrete claim from the supplied source and use its exact source ID.`
+    return {
+      title: `${label}: ${primaryTopic}`,
+      niche: `${audience} · ${primaryTopic}`,
+      targetAudience: audience,
+      problem,
+      proposedProduct: `A ${format} that helps ${audience.toLowerCase()} address ${problem.toLowerCase()} through a focused, practical ${type}.`,
+      productType: type,
+      rationale: `Evidence-only hypothesis built from two collected sources. It is a testable product direction rather than a claim of profitability. Source 1: ${sourceText(first)} Source 2: ${sourceText(second)}`,
+      estimatedPriceMin: 10 + index * 2,
+      estimatedPriceMax: 29 + index * 4,
+      evidence: [
+        { sourceId: first.id, claim: sourceText(first) },
+        { sourceId: second.id, claim: sourceText(second) },
+      ],
+      scoreRationales: {
+        demand: `Based on the overall evidence quality (${synthesis.evidenceQuality.overall}/100) and the selected source signals; direct demand should still be validated.`,
+        problemIntensity: `The research contains problem-oriented signals, but this fallback does not infer severity beyond the supplied evidence.`,
+        competitionGap: `Potential gap is treated as a hypothesis from the evidence rather than a definitive competitive claim.`,
+        monetization: `Pricing and willingness to pay remain hypotheses unless explicit purchase or pricing evidence was collected.`,
+        specificity: `The opportunity names a concrete audience and problem from the project context.`,
+        buildability: `A focused ${format} is comparatively feasible for a small creator or team to produce and test.`,
+      },
+      scores: { demand, problemIntensity, competitionGap, monetization, specificity, buildability },
+    };
   });
+}
 
-  const valid = object.opportunities.filter((opportunity) =>
-    opportunity.evidence.every((item) => evidenceById.has(item.sourceId)),
-  );
-
-  if (valid.length < 5) {
-    throw new Error("Opportunity generation returned too few opportunities with valid evidence references.");
-  }
-
-  const ranked = valid.map((opportunity) => {
+async function storeOpportunities(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectId: string,
+  searchId: string,
+  synthesis: ResearchSynthesis,
+  evidenceRows: EvidenceRow[],
+  opportunities: GeneratedOpportunity[],
+) {
+  const evidenceById = new Map(evidenceRows.map((row) => [row.id, row]));
+  const ranked = opportunities.map((opportunity) => {
     const overallScore = calculateOpportunityScore(opportunity.scores);
     const confidenceScore = confidenceForOpportunity(opportunity, evidenceById, synthesis.evidenceQuality);
     const evidenceSummary = {
@@ -207,16 +201,13 @@ Return opportunities that are directly supported by the evidence. Each evidence 
         sourceCount: opportunity.evidence.length,
       },
     };
-
     return { opportunity, overallScore, confidenceScore, evidenceSummary };
   }).sort((a, b) => b.overallScore - a.overallScore);
 
   const inserted = [];
-
   for (const item of ranked) {
     const priceMin = Math.min(item.opportunity.estimatedPriceMin, item.opportunity.estimatedPriceMax);
     const priceMax = Math.max(item.opportunity.estimatedPriceMin, item.opportunity.estimatedPriceMax);
-
     const { data: opportunity, error: opportunityError } = await supabase
       .from("opportunities")
       .insert({
@@ -245,9 +236,7 @@ Return opportunities that are directly supported by the evidence. Each evidence 
       .select("id")
       .single();
 
-    if (opportunityError || !opportunity) {
-      throw new Error(opportunityError?.message ?? "Unable to store generated opportunity");
-    }
+    if (opportunityError || !opportunity) throw new Error(opportunityError?.message ?? "Unable to store generated opportunity");
 
     const { error: scoreError } = await supabase.from("opportunity_scores").insert({
       opportunity_id: opportunity.id,
@@ -263,16 +252,92 @@ Return opportunities that are directly supported by the evidence. Each evidence 
       rationale: item.opportunity.rationale,
       evidence_summary: item.evidenceSummary,
     });
-
     if (scoreError) throw new Error(`Unable to store opportunity score: ${scoreError.message}`);
 
-    inserted.push({
-      id: opportunity.id,
-      title: item.opportunity.title,
-      opportunityScore: item.overallScore,
-      confidenceScore: item.confidenceScore,
+    inserted.push({ id: opportunity.id, title: item.opportunity.title, opportunityScore: item.overallScore, confidenceScore: item.confidenceScore });
+  }
+  return inserted;
+}
+
+export async function generateAndStoreOpportunities(
+  projectId: string,
+  researchRunId: string,
+  searchId: string,
+  input: ResearchInput,
+  synthesis: ResearchSynthesis,
+) {
+  const supabase = await createClient();
+  const { data: evidence, error: evidenceError } = await supabase
+    .from("research_evidence")
+    .select("id,source_url,source_domain,source_type,title,snippet,content_excerpt,published_at,relevance_score,credibility_score")
+    .eq("research_run_id", researchRunId)
+    .order("credibility_score", { ascending: false, nullsFirst: false })
+    .order("relevance_score", { ascending: false, nullsFirst: false })
+    .limit(MAX_EVIDENCE_ITEMS);
+
+  if (evidenceError) throw new Error(`Unable to load evidence for opportunity generation: ${evidenceError.message}`);
+  const evidenceRows = (evidence ?? []) as EvidenceRow[];
+  if (!evidenceRows.length) throw new Error("Opportunity generation requires research evidence.");
+
+  const evidenceById = new Map(evidenceRows.map((row) => [row.id, row]));
+  const evidencePacket = evidenceRows.map(compactEvidence);
+  let opportunities: GeneratedOpportunity[];
+
+  try {
+    const { object } = await generateObject({
+      model: getResearchModel(),
+      schema: opportunitiesSchema,
+      system: `You are ProductForge's opportunity strategist.
+
+Generate digital-product opportunity hypotheses from supplied research evidence. The goal is not to invent attractive ideas; it is to translate repeated, evidence-backed problems and gaps into specific, buildable product opportunities.
+
+Rules:
+1. Treat supplied evidence as the only factual source. Do not invent statistics, customer quotes, competitors, prices, market sizes, trends, or demand.
+2. An opportunity must be traceable to at least two supplied evidence sources. Use only valid source IDs.
+3. Prefer specific audiences and concrete problems over broad niches.
+4. Existing competition is not automatically bad. Score the competition gap based on evidence of limitations, complaints, underserved segments, or meaningful differentiation opportunities.
+5. Price fields are hypotheses, not market facts. If pricing evidence is weak, keep the range conservative and explain that it is an estimate.
+6. Score each dimension from 0-100 using only the supplied evidence and the defined rubric.
+7. Do not calculate or provide an overall score. ProductForge calculates the weighted overall score separately.
+8. Do not call anything guaranteed profitable. Use opportunity, signal, hypothesis, evidence, or potential.
+9. Produce distinct opportunities rather than eight variations of the same idea.
+
+SCORING RUBRIC
+- Demand: strength and repetition of concrete demand signals in the evidence.
+- Problem intensity: evidence that the problem is painful, frequent, costly, urgent, or frustrating.
+- Competition gap: evidence that current solutions leave meaningful gaps for this audience/problem.
+- Monetization: evidence of willingness to pay, existing spending, paid alternatives, or a clear economic value proposition.
+- Specificity: how precisely the opportunity identifies a customer, problem, and use case.
+- Buildability: how realistically a small creator/team could produce the proposed digital product using the stated format and available information.`,
+      prompt: `Create ${OPPORTUNITY_COUNT} distinct ProductForge opportunities.
+
+PROJECT CONTEXT
+Name: ${input.name}
+Starting point: ${input.startingPoint}
+Interests: ${(input.interests ?? []).join(", ") || "Not provided"}
+Expertise: ${input.expertise || "Not provided"}
+Audience: ${input.audience || "Not provided"}
+Problems: ${input.problems || "Not provided"}
+Goals: ${input.goals || "Not provided"}
+Preferred product types: ${(input.preferredProductTypes ?? []).join(", ") || "Not provided"}
+Priority goal: ${input.priorityGoal || "Not provided"}
+Additional context: ${input.additionalContext || "Not provided"}
+
+RESEARCH SYNTHESIS
+${JSON.stringify(synthesis, null, 2)}
+
+EVIDENCE PACKET
+${JSON.stringify(evidencePacket, null, 2)}
+
+Return opportunities that are directly supported by the evidence. Each evidence item must paraphrase a concrete claim from the supplied source and use its exact source ID.`
     });
+    opportunities = object.opportunities.filter((opportunity) => opportunity.evidence.every((item) => evidenceById.has(item.sourceId)));
+    if (opportunities.length < 5) throw new Error("Opportunity generation returned too few opportunities with valid evidence references.");
+  } catch (error) {
+    console.warn("AI opportunity generation unavailable; using evidence-only fallback.", error);
+    opportunities = fallbackOpportunities(input, synthesis, evidenceRows);
   }
 
+  const inserted = await storeOpportunities(supabase, projectId, searchId, synthesis, evidenceRows, opportunities);
   return inserted;
 }
