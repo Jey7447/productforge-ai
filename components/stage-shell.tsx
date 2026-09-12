@@ -38,7 +38,7 @@ export async function StageShell({
 
   const { data: latestRun } = await supabase
     .from("research_runs")
-    .select("id")
+    .select("id,opportunity_search_id")
     .eq("project_id", projectId)
     .eq("status", "completed")
     .order("created_at", { ascending: false })
@@ -52,11 +52,11 @@ export async function StageShell({
         .eq("research_run_id", latestRun.id)
     : { count: 0 };
 
-  const { count: opportunityCount } = latestRun?.id
+  const { count: opportunityCount } = latestRun?.opportunity_search_id
     ? await supabase
-        .from("opportunity_searches")
-        .select("opportunities(id)", { count: "exact", head: true })
-        .eq("id", latestRun.opportunity_search_id ?? "00000000-0000-0000-0000-000000000000")
+        .from("opportunities")
+        .select("id", { count: "exact", head: true })
+        .eq("search_id", latestRun.opportunity_search_id)
     : { count: 0 };
 
   const currentStage = Math.min(Math.max(Number(project?.current_stage ?? 1), 1), stages.length);
