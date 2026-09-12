@@ -36,6 +36,29 @@ export async function StageShell({
     .limit(1)
     .maybeSingle();
 
+  const { data: latestRun } = await supabase
+    .from("research_runs")
+    .select("id")
+    .eq("project_id", projectId)
+    .eq("status", "completed")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { count: evidenceCount } = latestRun?.id
+    ? await supabase
+        .from("research_evidence")
+        .select("id", { count: "exact", head: true })
+        .eq("research_run_id", latestRun.id)
+    : { count: 0 };
+
+  const { count: opportunityCount } = latestRun?.id
+    ? await supabase
+        .from("research_evidence")
+        .select("id", { count: "exact", head: true })
+        .eq("research_run_id", latestRun.id)
+    : { count: 0 };
+
   const currentStage = Math.min(Math.max(Number(project?.current_stage ?? 1), 1), stages.length);
   const launchAvailable = Boolean(product);
   const stageName = stages.some(([label]) => label === active) ? active as StageName : "Research";
@@ -89,7 +112,7 @@ export async function StageShell({
           <span>{stages[currentStage - 1][0]} in progress</span>
         </div>
 
-        <StageVisual active={stageName} />
+        <StageVisual active={stageName} evidenceCount={evidenceCount ?? 0} opportunityCount={opportunityCount ?? 0} />
       </div>
 
       <div className="mx-auto max-w-[1440px] px-5 pb-16 sm:px-8 lg:px-10">{children}</div>
