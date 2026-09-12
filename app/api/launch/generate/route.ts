@@ -132,11 +132,12 @@ export async function POST(request: Request) {
 
   // Refreshing the plan must not erase real launch progress or recorded
   // learning. The generated strategy can change; the user's evidence log
-  // belongs to the project and is therefore carried forward.
+  // and its diagnosis belong to the project and are therefore carried forward.
   const { data: existing } = await supabase.from("launch_plans").select("id,plan").eq("project_id", project.id).maybeSingle();
   const existingPlan = (existing?.plan ?? {}) as Record<string, any>;
   if (Array.isArray(existingPlan.checklist)) plan.checklist = existingPlan.checklist;
   if (existingPlan.launchLearning && typeof existingPlan.launchLearning === "object") plan.launchLearning = existingPlan.launchLearning;
+  if (existingPlan.launchDiagnosis && typeof existingPlan.launchDiagnosis === "object") plan.launchDiagnosis = existingPlan.launchDiagnosis;
 
   const payload = { project_id: project.id, product_id: product.id, opportunity_id: opportunity?.id ?? null, status: "ready", plan };
   const result = existing
