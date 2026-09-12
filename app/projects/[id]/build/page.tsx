@@ -89,6 +89,7 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
   const validatedToBuild = validation?.decision === "proceed" || (validation?.decision === "refine" && refinementTest?.status === "passed");
   const needsRefinement = validation?.decision === "refine" && refinementTest?.status !== "passed";
   const ready = Boolean(typedProduct && modules.length);
+  const buildUnlocked = Boolean(validatedToBuild && !ready);
 
   const moduleContent = modules.map((module) => ({
     module,
@@ -106,10 +107,17 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
             <h1 className="pf-display mt-3 max-w-4xl text-5xl font-semibold leading-[.94] sm:text-6xl">Build the product around the evidence.</h1>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-[#73736d]">Turn the validated opportunity into a structured product blueprint with a clear promise, audience, modules, lessons, exercises, and worksheets.</p>
           </div>
-          <span className={`rounded-full px-4 py-2 text-xs font-bold ${ready ? "bg-[#dff77a] text-[#171714]" : needsRefinement ? "bg-[#fff1b8] text-[#5d4b00]" : "border border-[#deded7] bg-white text-[#73736d]"}`}>
-            {ready ? "Blueprint created" : needsRefinement ? "Refinement required" : "Awaiting validation"}
+          <span className={`rounded-full px-4 py-2 text-xs font-bold ${ready ? "bg-[#dff77a] text-[#171714]" : buildUnlocked ? "bg-[#dff77a] text-[#171714]" : needsRefinement ? "bg-[#fff1b8] text-[#5d4b00]" : "border border-[#deded7] bg-white text-[#73736d]"}`}>
+            {ready ? "Blueprint created" : buildUnlocked ? "Ready to build" : needsRefinement ? "Refinement required" : "Awaiting validation"}
           </span>
         </div>
+
+        {buildUnlocked && !typedProduct && (
+          <div className="mt-6 flex flex-wrap items-center gap-3 rounded-2xl border border-[#dce88b] bg-[#f5fbd7] px-5 py-4 text-sm text-[#41431f]">
+            <span className="grid h-7 w-7 place-items-center rounded-full bg-[#171714] text-xs font-bold text-[#dff77a]">✓</span>
+            <span><strong>Validation passed.</strong> The refinement test is complete and Build is unlocked.</span>
+          </div>
+        )}
 
         {!opportunity ? (
           <section className="mt-8 rounded-[30px] border border-[#deded7] bg-white p-8"><p className="text-lg font-semibold">Research is required before building.</p><p className="mt-2 max-w-xl text-sm leading-6 text-[#73736d]">ProductForge needs a researched opportunity before it can create a product blueprint.</p><Link href={`/projects/${id}`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Back to research →</Link></section>
