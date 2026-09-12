@@ -124,7 +124,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "This opportunity was marked for abandonment. Refine or select another opportunity before building." }, { status: 400 });
   }
 
-  if (typedValidation.decision !== "proceed") {
+  let refinementPassed = false;
+  if (typedValidation.decision === "refine") {
+    const { data: refinementTest, error: refinementError } = await supabase
+      .from("validation_tests")
+      .select("id,status")
+      .eq("project_id", project.id)
+      .eq("opportunity_id", typedOpportunity.id)
+      .eq("validation_report_id", typedValidation.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (refinementError) {
+      return NextResponse.json({ error: `Unable to verify refinement test: ${refinementError.message}` }, { status: 500 });
+    }
+
+    refinementPassed = refinementTest?.status === "passed";
+  }
+
+  const validationPassed = typedValidation.decision === "proceed" || refinementPassed;
+
+  if (!validationPassed) {
     return NextResponse.json({ error: "The opportunity must pass validation before a product blueprint can be generated." }, { status: 400 });
   }
 
@@ -186,6 +207,7 @@ Product type: ${typedOpportunity.product_type || "Digital product"}
 
 VALIDATION
 Decision: ${typedValidation.decision}
+Refinement passed: ${refinementPassed ? "Yes" : "No"}
 Recommended changes: ${typedValidation.recommended_changes || "None recorded"}
 
 RESEARCH EVIDENCE
