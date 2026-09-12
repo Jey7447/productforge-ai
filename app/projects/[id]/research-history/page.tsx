@@ -53,21 +53,36 @@ export default async function ResearchHistoryPage({ params }: { params: Promise<
 
   const summaries: RunSummary[] = await Promise.all((runs ?? []).map(async (run) => {
     const typedRun = run as ResearchRun;
-    const [{ count: evidenceCount }, { count: opportunityCount }, { data: topRows }] = await Promise.all([
-      supabase.from("research_evidence").select("id", { count: "exact", head: true }).eq("research_run_id", typedRun.id),
-      typedRun.opportunity_search_id
-        ? supabase.from("opportunities").select("id", { count: "exact", head: true }).eq("search_id", typedRun.opportunity_search_id)
-        : Promise.resolve({ count: 0 }),
-      typedRun.opportunity_search_id
-        ? supabase.from("opportunities").select("title,opportunity_score,confidence_score").eq("search_id", typedRun.opportunity_search_id).order("opportunity_score", { ascending: false, nullsFirst: false }).limit(1)
-        : Promise.resolve({ data: [] }),
-    ]);
+    const evidenceResult = await supabase
+      .from("research_evidence")
+      .select("id", { count: "exact", head: true })
+      .eq("research_run_id", typedRun.id);
+
+    let opportunityCount = 0;
+    let topOpportunity: RunSummary["topOpportunity"] = null;
+
+    if (typedRun.opportunity_search_id) {
+      const opportunityCountResult = await supabase
+        .from("opportunities")
+        .select("id", { count: "exact", head: true })
+        .eq("search_id", typedRun.opportunity_search_id);
+      opportunityCount = opportunityCountResult.count ?? 0;
+
+      const topResult = await supabase
+        .from("opportunities")
+        .select("title,opportunity_score,confidence_score")
+        .eq("search_id", typedRun.opportunity_search_id)
+        .order("opportunity_score", { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      topOpportunity = topResult.data ?? null;
+    }
 
     return {
       ...typedRun,
-      evidenceCount: evidenceCount ?? 0,
-      opportunityCount: opportunityCount ?? 0,
-      topOpportunity: topRows?.[0] ?? null,
+      evidenceCount: evidenceResult.count ?? 0,
+      opportunityCount,
+      topOpportunity,
       evidenceQuality: Math.round(typedRun.metadata?.synthesis?.evidenceQuality?.overall ?? 0),
     };
   }));
@@ -77,7 +92,7 @@ export default async function ResearchHistoryPage({ params }: { params: Promise<
   const previous = completedRuns[1] ?? null;
 
   return (
-    <StageShell projectId={id} projectName={project.name} active="Research">
+    <StageShell projectId={id} projectName={project.name} active="Research" hideResearchExplorer>
       <div className="pt-8">
         <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
           <div>
