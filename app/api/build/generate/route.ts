@@ -1,5 +1,8 @@
+import { generateObject } from "ai";
+import { z } from "zod";
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getResearchModel } from "@/lib/ai/provider";
 
 type Opportunity = {
   id: string;
@@ -11,52 +14,67 @@ type Opportunity = {
 };
 
 type ValidationReport = {
+  id: string;
   decision: "proceed" | "refine" | "abandon" | null;
   recommended_changes: string | null;
 };
 
-const moduleTemplates = [
-  {
-    position: 1,
-    title: "Understand the problem",
-    description: "Build shared context around the problem, why it matters, and what commonly gets in the way.",
-    learning_outcome: "The learner can recognize the core problem and explain why it matters.",
-    lesson: "Problem framing and the current-state diagnosis",
-    lessonObjective: "Identify the learner's current situation, pain points, and desired outcome.",
-    exercise: "Write a one-page problem diagnosis for a real situation.",
-    worksheet: "Current-state problem map",
-  },
-  {
-    position: 2,
-    title: "Apply the core framework",
-    description: "Turn the validated insight into a repeatable method the audience can follow.",
-    learning_outcome: "The learner can apply the core method to a real problem.",
-    lesson: "The step-by-step framework",
-    lessonObjective: "Apply each stage of the framework in the correct sequence.",
-    exercise: "Work through the framework using one real example.",
-    worksheet: "Framework implementation canvas",
-  },
-  {
-    position: 3,
-    title: "Practice the transformation",
-    description: "Move from explanation to guided practice with examples, decisions, and implementation.",
-    learning_outcome: "The learner can use the method independently on a realistic case.",
-    lesson: "Guided implementation and common mistakes",
-    lessonObjective: "Complete the process while avoiding the most common failure points.",
-    exercise: "Complete a practical case study and compare the result with the success criteria.",
-    worksheet: "Implementation checklist",
-  },
-  {
-    position: 4,
-    title: "Make it repeatable",
-    description: "Create a lightweight system, toolkit, and next-step plan that supports continued use.",
-    learning_outcome: "The learner leaves with a repeatable process and concrete next actions.",
-    lesson: "Personal workflow, toolkit, and next steps",
-    lessonObjective: "Turn the method into a repeatable routine that can be improved over time.",
-    exercise: "Create a 7-day implementation plan and define one success metric.",
-    worksheet: "Action plan and progress tracker",
-  },
-];
+const lessonSchema = z.object({
+  title: z.string().min(3).max(160),
+  objective: z.string().min(10).max(500),
+  content: z.string().min(80).max(5000),
+});
+
+const moduleSchema = z.object({
+  title: z.string().min(3).max(160),
+  description: z.string().min(20).max(700),
+  learningOutcome: z.string().min(10).max(500),
+  lessons: z.array(lessonSchema).min(1).max(3),
+  exercise: z.object({
+    title: z.string().min(3).max(160),
+    instructions: z.string().min(30).max(1800),
+    completionCriteria: z.string().min(20).max(600),
+  }),
+  worksheet: z.object({
+    title: z.string().min(3).max(160),
+    purpose: z.string().min(20).max(500),
+    prompts: z.array(z.string().min(5).max(300)).min(3).max(8),
+  }),
+});
+
+const blueprintSchema = z.object({
+  name: z.string().min(3).max(180),
+  tagline: z.string().min(10).max(240),
+  description: z.string().min(30).max(1200),
+  format: z.string().min(3).max(120),
+  targetAudience: z.string().min(10).max(500),
+  promise: z.string().min(20).max(500),
+  modules: z.array(moduleSchema).min(4).max(6),
+});
+
+async function loadEvidence(supabase: Awaited<ReturnType<typeof createClient>>, projectId: string, opportunityId: string) {
+  const { data, error } = await supabase
+    .from("research_evidence")
+    .select("id,source_domain,title,source_url,content_excerpt,snippet,credibility_score,relevance_score")
+    .eq("opportunity_id", opportunityId)
+    .order("credibility_score", { ascending: false, nullsFirst: false })
+    .limit(30);
+
+  if (error) throw new Error(`Unable to load opportunity evidence: ${error.message}`);
+  if (data?.length) return data;
+
+  const { data: fallback, error: fallbackError } = await supabase
+    .from("research_evidence")
+    .select("id,source_domain,title,source_url,content_excerpt,snippet,credibility_score,relevance_score")
+    .eq("research_run_id", (
+      await supabase.from("research_runs").select("id").eq("project_id", projectId).eq("status", "completed").order("created_at", { ascending: false }).limit(1).maybeSingle()
+    ).data?.id ?? "")
+    .order("credibility_score", { ascending: false, nullsFirst: false })
+    .limit(30);
+
+  if (fallbackError) throw new Error(`Unable to load research evidence: ${fallbackError.message}`);
+  return fallback ?? [];
+}
 
 export async function POST(request: Request) {
   const supabase = await createClient();
@@ -90,7 +108,7 @@ export async function POST(request: Request) {
 
   const { data: validation } = await supabase
     .from("validation_reports")
-    .select("decision,recommended_changes")
+    .select("id,decision,recommended_changes")
     .eq("project_id", project.id)
     .eq("opportunity_id", typedOpportunity.id)
     .order("created_at", { ascending: false })
@@ -106,6 +124,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "This opportunity was marked for abandonment. Refine or select another opportunity before building." }, { status: 400 });
   }
 
+  if (typedValidation.decision !== "proceed") {
+    return NextResponse.json({ error: "The opportunity must pass validation before a product blueprint can be generated." }, { status: 400 });
+  }
+
   const { data: existingProduct } = await supabase
     .from("products")
     .select("id")
@@ -118,94 +140,151 @@ export async function POST(request: Request) {
     return NextResponse.json({ productId: existingProduct.id, created: false });
   }
 
-  const productName = typedOpportunity.proposed_product || typedOpportunity.title;
-  const promise = typedOpportunity.problem
-    ? `Help ${typedOpportunity.target_audience || "the target audience"} move from ${typedOpportunity.problem.toLowerCase()} to a practical, repeatable outcome.`
-    : `Help ${typedOpportunity.target_audience || "the target audience"} achieve a clear, practical outcome with a structured method.`;
-
-  const { data: product, error: productError } = await supabase
-    .from("products")
-    .insert({
-      project_id: project.id,
-      name: productName,
-      tagline: `A practical system for ${typedOpportunity.target_audience || "the target audience"}`,
-      description: typedOpportunity.proposed_product || typedOpportunity.title,
-      format: typedOpportunity.product_type || "Digital product",
-      target_audience: typedOpportunity.target_audience,
-      promise,
-      status: "in_progress",
-    })
-    .select("id,name,tagline,description,format,target_audience,promise,status")
-    .single();
-
-  if (productError || !product) {
-    return NextResponse.json({ error: productError?.message ?? "Unable to create product blueprint" }, { status: 500 });
+  const evidence = await loadEvidence(supabase, project.id, typedOpportunity.id);
+  if (!evidence.length) {
+    return NextResponse.json({ error: "Product generation requires research evidence for the selected opportunity." }, { status: 400 });
   }
 
-  for (const template of moduleTemplates) {
-    const { data: module, error: moduleError } = await supabase
-      .from("modules")
-      .insert({
-        product_id: product.id,
-        title: template.title,
-        description: template.description,
-        learning_outcome: template.learning_outcome,
-        position: template.position,
-      })
-      .select("id")
-      .single();
+  const evidencePacket = evidence.map((item) => ({
+    id: item.id,
+    domain: item.source_domain,
+    title: item.title,
+    url: item.source_url,
+    excerpt: (item.content_excerpt || item.snippet || "").slice(0, 1800),
+    credibility: item.credibility_score,
+    relevance: item.relevance_score,
+  }));
 
-    if (moduleError || !module) {
-      return NextResponse.json({ error: moduleError?.message ?? "Unable to create product module" }, { status: 500 });
-    }
+  try {
+    const { object: blueprint } = await generateObject({
+      model: getResearchModel(),
+      schema: blueprintSchema,
+      system: `You are ProductForge's product architect. Build a practical digital-product blueprint from a validated opportunity.
 
-    const { data: lesson, error: lessonError } = await supabase
-      .from("lessons")
-      .insert({
-        module_id: module.id,
-        title: template.lesson,
-        content: `This lesson should connect the validated problem — ${typedOpportunity.problem || "the audience's core problem"} — to the practical method introduced in this module.`,
-        learning_objective: template.lessonObjective,
-        position: 1,
-      })
-      .select("id")
-      .single();
+Rules:
+1. The opportunity, validation report, and supplied research evidence are the factual foundation. Do not invent market facts, statistics, customer quotes, competitors, prices, or demand claims.
+2. Create a product that directly addresses the validated problem and the target audience. Do not drift into a generic course about the broad topic.
+3. The product must have a clear transformation: starting state -> method -> concrete outcome.
+4. Make modules progressive. Each module should have 1–3 lessons, one practical exercise, and one worksheet.
+5. Lessons must be actionable and specific enough that a real creator could expand them into finished content.
+6. Exercises must produce observable work, decisions, or outputs—not vague reflection.
+7. Worksheets must contain useful prompts that map to the exercise and the module outcome.
+8. Treat the validation report as a constraint. Incorporate its recommended changes where relevant.
+9. Do not claim the product is guaranteed to sell or make money.
+10. Keep the scope realistic for a first digital-product version.`
+      , prompt: `Create the first evidence-grounded ProductForge blueprint.
 
-    if (lessonError || !lesson) {
-      return NextResponse.json({ error: lessonError?.message ?? "Unable to create product lesson" }, { status: 500 });
-    }
+PROJECT
+Name: ${project.name}
 
-    const { error: exerciseError } = await supabase.from("exercises").insert({
-      module_id: module.id,
-      lesson_id: lesson.id,
-      title: template.exercise,
-      instructions: `Complete this exercise using the context of ${typedOpportunity.title}. Focus on a real situation rather than a hypothetical answer.`,
-      completion_criteria: "A concrete answer, decision, or implementation plan that can be reviewed against the lesson objective.",
-      position: 1,
+VALIDATED OPPORTUNITY
+Title: ${typedOpportunity.title}
+Audience: ${typedOpportunity.target_audience || "Not explicitly defined"}
+Problem: ${typedOpportunity.problem || "Not explicitly defined"}
+Proposed product: ${typedOpportunity.proposed_product || "Not specified"}
+Product type: ${typedOpportunity.product_type || "Digital product"}
+
+VALIDATION
+Decision: ${typedValidation.decision}
+Recommended changes: ${typedValidation.recommended_changes || "None recorded"}
+
+RESEARCH EVIDENCE
+${JSON.stringify(evidencePacket, null, 2)}
+
+Return a cohesive product blueprint. Use the evidence to sharpen the audience, promise, scope, and practical sequence. Do not cite or quote sources in the product copy; the ProductForge interface will keep the research record alongside the blueprint.`
     });
 
-    if (exerciseError) return NextResponse.json({ error: exerciseError.message }, { status: 500 });
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .insert({
+        project_id: project.id,
+        name: blueprint.name,
+        tagline: blueprint.tagline,
+        description: blueprint.description,
+        format: blueprint.format,
+        target_audience: blueprint.targetAudience,
+        promise: blueprint.promise,
+        status: "in_progress",
+      })
+      .select("id,name,tagline,description,format,target_audience,promise,status")
+      .single();
 
-    const { error: worksheetError } = await supabase.from("worksheets").insert({
-      module_id: module.id,
-      lesson_id: lesson.id,
-      title: template.worksheet,
-      content: {
-        purpose: "Apply the lesson to the learner's real situation.",
-        prompts: ["Current situation", "Desired outcome", "Key actions", "Evidence of progress", "Next step"],
-      },
-      position: 1,
+    if (productError || !product) {
+      return NextResponse.json({ error: productError?.message ?? "Unable to create product blueprint" }, { status: 500 });
+    }
+
+    for (const [moduleIndex, moduleBlueprint] of blueprint.modules.entries()) {
+      const { data: module, error: moduleError } = await supabase
+        .from("modules")
+        .insert({
+          product_id: product.id,
+          title: moduleBlueprint.title,
+          description: moduleBlueprint.description,
+          learning_outcome: moduleBlueprint.learningOutcome,
+          position: moduleIndex + 1,
+        })
+        .select("id")
+        .single();
+
+      if (moduleError || !module) throw new Error(moduleError?.message ?? "Unable to create product module");
+
+      for (const [lessonIndex, lessonBlueprint] of moduleBlueprint.lessons.entries()) {
+        const { data: lesson, error: lessonError } = await supabase
+          .from("lessons")
+          .insert({
+            module_id: module.id,
+            title: lessonBlueprint.title,
+            content: lessonBlueprint.content,
+            learning_objective: lessonBlueprint.objective,
+            position: lessonIndex + 1,
+          })
+          .select("id")
+          .single();
+
+        if (lessonError || !lesson) throw new Error(lessonError?.message ?? "Unable to create product lesson");
+
+        if (lessonIndex === 0) {
+          const { error: exerciseError } = await supabase.from("exercises").insert({
+            module_id: module.id,
+            lesson_id: lesson.id,
+            title: moduleBlueprint.exercise.title,
+            instructions: moduleBlueprint.exercise.instructions,
+            completion_criteria: moduleBlueprint.exercise.completionCriteria,
+            position: 1,
+          });
+          if (exerciseError) throw new Error(exerciseError.message);
+
+          const { error: worksheetError } = await supabase.from("worksheets").insert({
+            module_id: module.id,
+            lesson_id: lesson.id,
+            title: moduleBlueprint.worksheet.title,
+            content: {
+              purpose: moduleBlueprint.worksheet.purpose,
+              prompts: moduleBlueprint.worksheet.prompts,
+            },
+            position: 1,
+          });
+          if (worksheetError) throw new Error(worksheetError.message);
+        }
+      }
+    }
+
+    const { error: projectError } = await supabase
+      .from("projects")
+      .update({ status: "building", current_stage: 4, updated_at: new Date().toISOString() })
+      .eq("id", project.id);
+
+    if (projectError) throw new Error(projectError.message);
+
+    return NextResponse.json({
+      productId: product.id,
+      created: true,
+      moduleCount: blueprint.modules.length,
+      lessonCount: blueprint.modules.reduce((sum, item) => sum + item.lessons.length, 0),
     });
-
-    if (worksheetError) return NextResponse.json({ error: worksheetError.message }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "Product blueprint generation failed",
+    }, { status: 500 });
   }
-
-  const { error: projectError } = await supabase
-    .from("projects")
-    .update({ status: "building", current_stage: 4, updated_at: new Date().toISOString() })
-    .eq("id", project.id);
-
-  if (projectError) return NextResponse.json({ error: projectError.message }, { status: 500 });
-
-  return NextResponse.json({ productId: product.id, created: true, moduleCount: moduleTemplates.length });
 }
