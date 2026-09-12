@@ -100,6 +100,7 @@ export async function StageShell({
           </div>
           <div className="flex items-center gap-3">
             {active === "Research" && currentStage > 1 && <NewResearchButton projectId={projectId} />}
+            {active === "Research" && <Link href={`/projects/${projectId}/research-history`} className="pf-lift hidden rounded-full border border-[#d2d2ca] bg-white/85 px-4 py-2 text-xs font-semibold shadow-sm transition hover:border-[#aaa9a0] sm:inline-flex">Research history ↗</Link>}
             <Link href={`/projects/${projectId}`} className="pf-lift rounded-full border border-[#d2d2ca] bg-white/85 px-4 py-2 text-xs font-semibold shadow-sm transition hover:border-[#aaa9a0]">
               Research workspace ↗
             </Link>
