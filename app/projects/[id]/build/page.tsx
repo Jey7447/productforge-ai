@@ -5,6 +5,9 @@ import { StageShell } from "@/components/stage-shell";
 import { BuildButton } from "@/components/build-button";
 import { ProductWorkspace } from "@/components/product-workspace";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type Product = {
   id: string;
   name: string;
@@ -62,9 +65,6 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
     .single();
   if (!project) notFound();
 
-  // The selected opportunity is the source of truth for downstream stages.
-  // Fall back to the highest-scoring opportunity only for projects created
-  // before the decision layer existed.
   const { data: selectedOpportunity } = await supabase
     .from("opportunities")
     .select("id,title,proposed_product,product_type,target_audience,problem")
@@ -164,22 +164,10 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
         <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#8a8a82]">04 · Product builder</p>
         <div className="flex flex-col justify-between gap-6 lg:flex-row lg:items-end">
           <div>
-            <h1 className="pf-display mt-3 max-w-4xl text-5xl font-semibold leading-[.94] sm:text-6xl">
-              Build the product around the evidence.
-            </h1>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-[#73736d]">
-              Turn the validated opportunity into a structured product blueprint, then explore the curriculum in a focused workspace.
-            </p>
+            <h1 className="pf-display mt-3 max-w-4xl text-5xl font-semibold leading-[.94] sm:text-6xl">Build the product around the evidence.</h1>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-[#73736d]">Turn the validated opportunity into a structured product blueprint, then explore the curriculum in a focused workspace.</p>
           </div>
-          <span className={`rounded-full px-4 py-2 text-xs font-bold ${
-            ready
-              ? "bg-[#dff77a] text-[#171714]"
-              : buildUnlocked
-                ? "bg-[#dff77a] text-[#171714]"
-                : needsRefinement
-                  ? "bg-[#fff1b8] text-[#5d4b00]"
-                  : "border border-[#deded7] bg-white text-[#73736d]"
-          }`}>
+          <span className={`rounded-full px-4 py-2 text-xs font-bold ${ready ? "bg-[#dff77a] text-[#171714]" : buildUnlocked ? "bg-[#dff77a] text-[#171714]" : needsRefinement ? "bg-[#fff1b8] text-[#5d4b00]" : "border border-[#deded7] bg-white text-[#73736d]"}`}>
             {ready ? "Blueprint created" : buildUnlocked ? "Ready to build" : needsRefinement ? "Refinement required" : "Awaiting validation"}
           </span>
         </div>
@@ -258,14 +246,7 @@ export default async function BuildPage({ params }: { params: Promise<{ id: stri
             </section>
           </>
         ) : (
-          <ProductWorkspace
-            projectId={id}
-            product={typedProduct}
-            modules={modules}
-            lessons={lessons}
-            exercises={exercises}
-            worksheets={worksheets}
-          />
+          <ProductWorkspace projectId={id} product={typedProduct} modules={modules} lessons={lessons} exercises={exercises} worksheets={worksheets} />
         )}
       </div>
     </StageShell>
