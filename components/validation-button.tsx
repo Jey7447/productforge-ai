@@ -1,8 +1,10 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 export function ValidationButton({ projectId, opportunityId }: { projectId: string; opportunityId?: string }) {
+  const router = useRouter();
   const [running, setRunning] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState(false);
@@ -30,10 +32,12 @@ export function ValidationButton({ projectId, opportunityId }: { projectId: stri
 
       setMessage(data.reused ? "Validation report already exists. Showing the latest decision…" : "Validation complete. Showing the decision report…");
 
-      // Refresh the server-rendered report, then move the user to the newly
-      // available decision instead of silently leaving them at the top.
-      window.location.hash = "validation-report";
-      window.location.reload();
+      // Re-fetch the Server Component so the saved report appears immediately,
+      // without a full browser reload. Then move the user to the decision area.
+      router.refresh();
+      window.setTimeout(() => {
+        window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+      }, 500);
     } catch {
       setError(true);
       setMessage("Could not reach the validation service. Please try again.");
