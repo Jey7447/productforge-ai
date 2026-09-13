@@ -8,6 +8,8 @@ export function ValidationButton({ projectId, opportunityId }: { projectId: stri
   const [error, setError] = useState(false);
 
   async function generateValidation() {
+    if (running) return;
+
     setRunning(true);
     setMessage("Turning the selected research signals into a validation scorecard…");
     setError(false);
@@ -26,7 +28,11 @@ export function ValidationButton({ projectId, opportunityId }: { projectId: stri
         return;
       }
 
-      setMessage("Validation report ready.");
+      setMessage(data.reused ? "Validation report already exists. Showing the latest decision…" : "Validation complete. Showing the decision report…");
+
+      // Refresh the server-rendered report, then move the user to the newly
+      // available decision instead of silently leaving them at the top.
+      window.location.hash = "validation-report";
       window.location.reload();
     } catch {
       setError(true);
@@ -38,10 +44,18 @@ export function ValidationButton({ projectId, opportunityId }: { projectId: stri
 
   return (
     <div>
-      <button onClick={generateValidation} disabled={running} className="inline-flex items-center gap-2 rounded-full bg-[#d9f06a] px-5 py-3 text-sm font-bold text-[#171714] transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50">
+      <button
+        onClick={generateValidation}
+        disabled={running}
+        className="inline-flex items-center gap-2 rounded-full bg-[#d9f06a] px-5 py-3 text-sm font-bold text-[#171714] transition hover:-translate-y-0.5 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+      >
         {running ? "Validating…" : "Generate validation →"}
       </button>
-      {message && <p className={`mt-3 text-xs leading-5 ${error ? "text-red-600" : "text-[#73736d]"}`}>{message}</p>}
+      {message && (
+        <p className={`mt-3 text-xs leading-5 ${error ? "text-red-600" : "text-[#73736d]"}`}>
+          {message}
+        </p>
+      )}
     </div>
   );
 }
