@@ -31,9 +31,6 @@ export async function POST(request: Request) {
   const { data: project } = await supabase.from("projects").select("id,name").eq("id", body.projectId).eq("user_id", user.id).single();
   if (!project) return NextResponse.json({ error: "Project not found" }, { status: 404 });
 
-  const { data: product } = await supabase.from("products").select("id,name,tagline,description,format,target_audience,promise").eq("project_id", project.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
-  if (!product) return NextResponse.json({ error: "Create the product blueprint before generating a launch plan." }, { status: 400 });
-
   // The selected opportunity is authoritative for downstream strategy.
   // Legacy projects without a selection fall back to the highest-scoring idea.
   const { data: selectedOpportunity } = await supabase
@@ -55,6 +52,46 @@ export async function POST(request: Request) {
     : { data: null };
 
   const opportunity = selectedOpportunity ?? fallbackOpportunity;
+  if (!opportunity) return NextResponse.json({ error: "Research an opportunity before generating a launch plan." }, { status: 400 });
+
+  // Launch is downstream of the same validation gate enforced by Build.
+  // A Refine decision must have a passed refinement test for this exact
+  // opportunity/report before launch planning can proceed.
+  const { data: validation, error: validationError } = await supabase
+    .from("validation_reports")
+    .select("id,decision")
+    .eq("project_id", project.id)
+    .eq("opportunity_id", opportunity.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (validationError) return NextResponse.json({ error: `Unable to verify validation: ${validationError.message}` }, { status: 500 });
+  if (!validation) return NextResponse.json({ error: "Validate the opportunity before generating a launch plan." }, { status: 400 });
+  if (validation.decision === "abandon") return NextResponse.json({ error: "This opportunity was marked for abandonment. Refine or select another opportunity before launch." }, { status: 400 });
+
+  let validationReady = validation.decision === "proceed";
+  if (validation.decision === "refine") {
+    const { data: refinementTest, error: refinementError } = await supabase
+      .from("validation_tests")
+      .select("id,status")
+      .eq("project_id", project.id)
+      .eq("opportunity_id", opportunity.id)
+      .eq("validation_report_id", validation.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (refinementError) return NextResponse.json({ error: `Unable to verify refinement test: ${refinementError.message}` }, { status: 500 });
+    validationReady = refinementTest?.status === "passed";
+  }
+
+  if (!validationReady) {
+    return NextResponse.json({ error: "The opportunity must pass validation before a launch plan can be generated." }, { status: 400 });
+  }
+
+  const { data: product } = await supabase.from("products").select("id,name,tagline,description,format,target_audience,promise").eq("project_id", project.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (!product) return NextResponse.json({ error: "Create the product blueprint before generating a launch plan." }, { status: 400 });
 
   const { data: latestRun, error: latestRunError } = await supabase.from("research_runs").select("id").eq("project_id", project.id).eq("status", "completed").order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (latestRunError) return NextResponse.json({ error: `Unable to locate completed research: ${latestRunError.message}` }, { status: 500 });
@@ -160,7 +197,7 @@ export async function POST(request: Request) {
   if (existingPlan.launchLearning && typeof existingPlan.launchLearning === "object") plan.launchLearning = existingPlan.launchLearning;
   if (existingPlan.launchDiagnosis && typeof existingPlan.launchDiagnosis === "object") plan.launchDiagnosis = existingPlan.launchDiagnosis;
 
-  const payload = { project_id: project.id, product_id: product.id, opportunity_id: opportunity?.id ?? null, status: "ready", plan };
+  const payload = { project_id: project.id, product_id: product.id, opportunity_id: opportunity.id, status: "ready", plan };
   const result = existing
     ? await supabase.from("launch_plans").update(payload).eq("id", existing.id).select("id,plan,status").single()
     : await supabase.from("launch_plans").insert(payload).select("id,plan,status").single();
