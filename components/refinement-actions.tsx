@@ -70,7 +70,10 @@ export function RefinementActions({
       const data = await response.json().catch(() => ({}));
       if (data.test?.validation_score != null) setValidationScore(Number(data.test.validation_score));
       if (data.test?.signal_summary) setSignalSummary(data.test.signal_summary);
-      if (!response.ok) throw new Error(data.error ?? "Could not update the test.");
+      if (!response.ok) {
+        if (data.test?.status === "failed") window.setTimeout(() => window.location.reload(), 700);
+        throw new Error(data.error ?? "Could not update the test.");
+      }
       setMessage(nextStatus === "passed" ? "Evidence evaluated. Build is now unlocked." : nextStatus === "failed" ? "Test recorded as failed. Use the learning to define the next iteration." : "Test marked in progress.");
       if (nextStatus === "passed") window.location.href = `/projects/${projectId}/build`;
       else window.location.reload();
