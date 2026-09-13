@@ -24,6 +24,18 @@ export async function POST(request:Request){
  }
  if(error||!opportunity)return NextResponse.json({error:"No researched opportunity is available to validate yet. Complete research first."},{status:400});
  const o=opportunity as Opportunity;
+
+ // Validation is deterministic in v1, so rerunning the same opportunity without
+ // new validation evidence would only create duplicate reports. Reuse the latest
+ // report until the future Validation Lab introduces explicit experiment results.
+ const {data:existingReport}=await supabase.from("validation_reports")
+   .select("id,decision,confidence_score,strengths,risks,disproof_findings,evidence_summary,recommended_changes,created_at")
+   .eq("project_id",project.id).eq("opportunity_id",o.id)
+   .order("created_at",{ascending:false}).limit(1).maybeSingle();
+ if(existingReport){
+   return NextResponse.json({report:existingReport,opportunityId:o.id,reused:true},{status:200});
+ }
+
  const {data:linked,count:linkedCount}=await supabase.from("research_evidence").select("source_domain,source_type",{count:"exact"}).eq("opportunity_id",o.id).limit(100);
  let evidence=(linked??[]) as Evidence[];let evidenceCount=linkedCount??evidence.length;
  if(!evidence.length){const {data:run}=await supabase.from("research_runs").select("id").eq("project_id",project.id).eq("status","completed").order("created_at",{ascending:false}).limit(1).maybeSingle();if(run){const {data:rows,count}=await supabase.from("research_evidence").select("source_domain,source_type",{count:"exact"}).eq("research_run_id",run.id).limit(100);evidence=(rows??[]) as Evidence[];evidenceCount=count??evidence.length;}}
@@ -33,5 +45,5 @@ export async function POST(request:Request){
  if(reportError||!report)return NextResponse.json({error:reportError?.message??"Unable to save validation report"},{status:500});
  const nextStage=decision==="proceed"?4:3;const nextStatus=decision==="proceed"?"building":"validated";
  const {error:projectError}=await supabase.from("projects").update({status:nextStatus,current_stage:nextStage,updated_at:new Date().toISOString()}).eq("id",project.id);if(projectError)return NextResponse.json({error:projectError.message},{status:500});
- return NextResponse.json({report,opportunityId:o.id},{status:201});
+ return NextResponse.json({report,opportunityId:o.id,reused:false},{status:201});
 }
