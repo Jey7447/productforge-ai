@@ -11,7 +11,7 @@ function recommendations(o:Opportunity){const out:string[]=[];if(n(o.demand_scor
 export async function POST(request:Request){
  const supabase=await createClient();const {data:{user}}=await supabase.auth.getUser();if(!user)return NextResponse.json({error:"Unauthorized"},{status:401});
  const body=await request.json().catch(()=>null) as {projectId?:string;opportunityId?:string}|null;if(!body?.projectId)return NextResponse.json({error:"projectId is required"},{status:400});
- const {data:project}=await supabase.from("projects").select("id,name").eq("id",body.projectId).eq("user_id",user.id).single();if(!project)return NextResponse.json({error:"Project not found"},{status:404});
+ const {data:project}=await supabase.from("projects").select("id,name,current_stage").eq("id",body.projectId).eq("user_id",user.id).single();if(!project)return NextResponse.json({error:"Project not found"},{status:404});
  const fields="id,title,target_audience,problem,proposed_product,opportunity_score,confidence_score,demand_score,problem_intensity_score,competition_gap_score,monetization_score,specificity_score,buildability_score";
  let opportunity=null;
  let error=null;
@@ -36,6 +36,14 @@ export async function POST(request:Request){
    return NextResponse.json({report:existingReport,opportunityId:o.id,reused:true},{status:200});
  }
 
+ // Once Build has started, validation cannot be created for a new opportunity.
+ // This prevents a direct API request from creating a fresh report for a
+ // different research candidate and moving the project backwards from Build or
+ // Launch to an earlier stage. Existing reports remain safely readable/idempotent.
+ if(Number(project.current_stage ?? 1) >= 4){
+   return NextResponse.json({error:"Validation cannot be started for a new opportunity after product build begins. Start a new project to evaluate a different opportunity."},{status:409});
+ }
+
  const {data:linked,count:linkedCount}=await supabase.from("research_evidence").select("source_domain,source_type",{count:"exact"}).eq("opportunity_id",o.id).limit(100);
  let evidence=(linked??[]) as Evidence[];let evidenceCount=linkedCount??evidence.length;
  if(!evidence.length){const {data:run}=await supabase.from("research_runs").select("id").eq("project_id",project.id).eq("status","completed").order("created_at",{ascending:false}).limit(1).maybeSingle();if(run){const {data:rows,count}=await supabase.from("research_evidence").select("source_domain,source_type",{count:"exact"}).eq("research_run_id",run.id).limit(100);evidence=(rows??[]) as Evidence[];evidenceCount=count??evidence.length;}}
@@ -44,6 +52,6 @@ export async function POST(request:Request){
  const {data:report,error:reportError}=await supabase.from("validation_reports").insert({project_id:project.id,opportunity_id:o.id,decision,confidence_score:confidence,strengths:strengths(o),risks:risks(o),disproof_findings:["If target users do not consistently describe the stated problem as important, the opportunity should be refined or rejected.","If comparable solutions satisfy users without a meaningful unmet need, the competition-gap thesis is weakened.","If qualified users show little willingness to pay for the proposed outcome, the monetization thesis is disproved."],evidence_summary:evidenceSummary,recommended_changes:recommendations(o)}).select("id,decision,confidence_score,strengths,risks,disproof_findings,evidence_summary,recommended_changes,created_at").single();
  if(reportError||!report)return NextResponse.json({error:reportError?.message??"Unable to save validation report"},{status:500});
  const nextStage=decision==="proceed"?4:3;const nextStatus=decision==="proceed"?"building":"validated";
- const {error:projectError}=await supabase.from("projects").update({status:nextStatus,current_stage:nextStage,updated_at:new Date().toISOString()}).eq("id",project.id);if(projectError)return NextResponse.json({error:projectError.message},{status:500});
+ const {error:projectError}=await supabase.from("projects").update({status:nextStatus,current_stage:nextStage,updated_at:new Date().toISOString()}).eq("id",project.id).eq("user_id",user.id);if(projectError)return NextResponse.json({error:projectError.message},{status:500});
  return NextResponse.json({report,opportunityId:o.id,reused:false},{status:201});
 }
