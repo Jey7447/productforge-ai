@@ -16,8 +16,8 @@ function calculateSignal(testType: string, sample: number, confirmations: number
     ? sample >= 5 && confirmations >= 3 && commitments >= 2
     : sample >= 3 && confirmations >= 2 && positives >= 2;
   const summary = thresholdMet
-    ? `Strong enough signal for this test: ${confirmations}/${sample} confirmed the problem and ${commitments}/${sample} produced a concrete commitment or switch signal.`
-    : `The current evidence is not yet strong enough: ${confirmations}/${sample || 0} confirmed the problem and ${commitments}/${sample || 0} produced a concrete commitment or switch signal.`;
+    ? `Test threshold met: ${confirmations}/${sample} confirmed the problem and ${commitments}/${sample} produced a concrete commitment or switch signal.`
+    : `Test threshold not met: ${confirmations}/${sample || 0} confirmed the problem and ${commitments}/${sample || 0} produced a concrete commitment or switch signal.`;
   return { score, thresholdMet, summary };
 }
 
@@ -52,17 +52,21 @@ export async function POST(request: Request) {
   let signalSummary: string | null = null;
   let failedThreshold = false;
 
-  if (body.status === "passed") {
-    if (!body.notes?.trim() || !body.outcome?.trim()) return NextResponse.json({ error: "Record what you learned and the outcome before evaluating the evidence." }, { status: 400 });
-    if (sample < 1) return NextResponse.json({ error: "Enter the number of people tested before evaluating the evidence." }, { status: 400 });
+  if (sample > 0) {
     const signal = calculateSignal(test.test_type, sample, confirmations, positives, commitments, negatives);
     validationScore = signal.score;
     signalSummary = signal.summary;
-    if (!signal.thresholdMet) {
+    if (body.status === "passed" && !signal.thresholdMet) {
       nextStatus = "failed";
       failedThreshold = true;
     }
   }
+
+  if (body.status === "passed") {
+    if (!body.notes?.trim() || !body.outcome?.trim()) return NextResponse.json({ error: "Record what you learned and the outcome before evaluating the evidence." }, { status: 400 });
+    if (sample < 1) return NextResponse.json({ error: "Enter the number of people tested before evaluating the evidence." }, { status: 400 });
+  }
+  if (body.status === "failed" && !body.outcome?.trim()) return NextResponse.json({ error: "Record the test outcome before marking the test as failed." }, { status: 400 });
 
   const { data: updated, error } = await supabase.from("validation_tests").update({
     status: nextStatus,
@@ -78,11 +82,7 @@ export async function POST(request: Request) {
   }).eq("id", body.testId).select("id,status,test_type,validation_score,signal_summary").single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  if (nextStatus === "passed") {
-    await supabase.from("projects").update({ current_stage: 4, status: "building" }).eq("id", body.projectId).eq("user_id", user.id);
-  }
-
+  if (nextStatus === "passed") await supabase.from("projects").update({ current_stage: 4, status: "building" }).eq("id", body.projectId).eq("user_id", user.id);
   if (failedThreshold) return NextResponse.json({ error: `${signalSummary} The test has been recorded as needing another iteration rather than unlocking Build.`, test: updated }, { status: 422 });
   return NextResponse.json({ test: updated });
 }
