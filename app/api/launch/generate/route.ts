@@ -34,7 +34,27 @@ export async function POST(request: Request) {
   const { data: product } = await supabase.from("products").select("id,name,tagline,description,format,target_audience,promise").eq("project_id", project.id).order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (!product) return NextResponse.json({ error: "Create the product blueprint before generating a launch plan." }, { status: 400 });
 
-  const { data: opportunity } = await supabase.from("opportunities").select("id,title,problem,proposed_product,target_audience,product_type,estimated_price_min,estimated_price_max,confidence_score,opportunity_score").eq("project_id", project.id).order("opportunity_score", { ascending: false }).limit(1).maybeSingle();
+  // The selected opportunity is authoritative for downstream strategy.
+  // Legacy projects without a selection fall back to the highest-scoring idea.
+  const { data: selectedOpportunity } = await supabase
+    .from("opportunities")
+    .select("id,title,problem,proposed_product,target_audience,product_type,estimated_price_min,estimated_price_max,confidence_score,opportunity_score")
+    .eq("project_id", project.id)
+    .eq("status", "selected")
+    .limit(1)
+    .maybeSingle();
+
+  const { data: fallbackOpportunity } = !selectedOpportunity
+    ? await supabase
+        .from("opportunities")
+        .select("id,title,problem,proposed_product,target_audience,product_type,estimated_price_min,estimated_price_max,confidence_score,opportunity_score")
+        .eq("project_id", project.id)
+        .order("opportunity_score", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
+
+  const opportunity = selectedOpportunity ?? fallbackOpportunity;
 
   const { data: latestRun, error: latestRunError } = await supabase.from("research_runs").select("id").eq("project_id", project.id).eq("status", "completed").order("created_at", { ascending: false }).limit(1).maybeSingle();
   if (latestRunError) return NextResponse.json({ error: `Unable to locate completed research: ${latestRunError.message}` }, { status: 500 });
@@ -47,6 +67,7 @@ export async function POST(request: Request) {
     const { data: opportunityEvidence, error: evidenceError } = await supabase.from("research_evidence").select("source_domain,title,snippet,content_excerpt,credibility_score,relevance_score").eq("opportunity_id", opportunity.id).order("relevance_score", { ascending: false, nullsFirst: false }).limit(20);
     if (evidenceError) return NextResponse.json({ error: `Unable to load launch evidence: ${evidenceError.message}` }, { status: 500 });
     rows = (opportunityEvidence ?? []) as EvidenceRow[];
+    evidenceCount = rows.length;
   }
 
   if (!rows.length && latestRun?.id) {
