@@ -5,6 +5,9 @@ import { LaunchWorkspace } from "@/components/launch-workspace";
 import { LaunchLearningWorkspace } from "@/components/launch-learning";
 import { StageShell } from "@/components/stage-shell";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type Product = { id: string; name: string; tagline: string | null; promise: string | null };
 type LaunchPlan = { id: string; status: string; plan: Record<string, any> };
 type Opportunity = { id: string; status: string };
@@ -37,8 +40,6 @@ export default async function LaunchPage({ params }: { params: Promise<{ id: str
     .maybeSingle();
   const typedProduct = product as Product | null;
 
-  // Launch is downstream of validation. Resolve the same selected opportunity
-  // used by Build, with a legacy top-score fallback for older projects.
   const { data: selectedOpportunity } = await supabase
     .from("opportunities")
     .select("id,status")
@@ -95,9 +96,6 @@ export default async function LaunchPage({ params }: { params: Promise<{ id: str
     .eq("project_id", id)
     .maybeSingle();
 
-  // Always reconcile the displayed evidence with the latest completed
-  // research run. This prevents a previously generated launch plan from
-  // showing stale "0 evidence" even when research has since completed.
   let reconciledPlan = launchPlan as LaunchPlan | null;
   if (reconciledPlan) {
     const { data: latestRun } = await supabase
@@ -165,9 +163,7 @@ export default async function LaunchPage({ params }: { params: Promise<{ id: str
         ) : !validationReady ? (
           <section className="mt-8 rounded-[30px] border border-[#deded7] bg-white p-8">
             <p className="text-lg font-semibold">Validation must pass before launch planning.</p>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#73736d]">
-              Launch strategy must be grounded in a validated opportunity. Generate the validation report first; if the decision is Refine, complete the required refinement test before returning here.
-            </p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-[#73736d]">Launch strategy must be grounded in a validated opportunity. Generate the validation report first; if the decision is Refine, complete the required refinement test before returning here.</p>
             <Link href={`/projects/${id}/validate`} className="mt-5 inline-flex rounded-full bg-[#171714] px-5 py-3 text-sm font-semibold text-white">Open validation →</Link>
           </section>
         ) : (
