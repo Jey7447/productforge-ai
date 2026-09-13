@@ -13,7 +13,7 @@ export async function POST(request: Request) {
 
   const { data: project } = await supabase
     .from("projects")
-    .select("id")
+    .select("id,current_stage")
     .eq("id", body.projectId)
     .eq("user_id", user.id)
     .single();
@@ -28,6 +28,21 @@ export async function POST(request: Request) {
   if (!opportunity) return NextResponse.json({ error: "Opportunity not found" }, { status: 404 });
 
   if (body.action === "select") {
+    // Once Build has produced the project's single product, changing the
+    // selected opportunity would make the product, validation, and launch
+    // strategy refer to different ideas. Start a new project instead.
+    const { data: existingProduct, error: productError } = await supabase
+      .from("products")
+      .select("id")
+      .eq("project_id", project.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (productError) return NextResponse.json({ error: `Unable to verify project stage: ${productError.message}` }, { status: 500 });
+    if (existingProduct || Number(project.current_stage ?? 1) >= 4) {
+      return NextResponse.json({ error: "The opportunity can no longer be changed after product build begins. Create a new project to pursue a different opportunity." }, { status: 409 });
+    }
+
     const { error: clearError } = await supabase
       .from("opportunities")
       .update({ status: "shortlisted" })
